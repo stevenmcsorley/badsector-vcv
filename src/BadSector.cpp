@@ -147,7 +147,7 @@ struct BadSector : Module {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configParam(BUFFER_PARAM, 0.f, 1.f, 0.5f, "Buffer (16s .. 80Hz, or clock div/mult)");
 		configParam(REPEAT_PARAM, 0.f, 1.f, 0.f, "Repeat (musical subdivisions, up to audio rate)");
-		configParam(MIX_PARAM, 0.f, 1.f, 0.5f, "Mix", "%", 0.f, 100.f);
+		configParam(MIX_PARAM, 0.f, 1.f, 0.5f, "Mix (wet = the previous clock division)", "%", 0.f, 100.f);
 		configParam(DAMAGE_PARAM, 0.f, 1.f, 0.f, "Damage (selected channel: Bend/Break/Corrupt)");
 		configParam(CVAMT_PARAM, 0.f, 1.f, 0.75f, "CV amount (selected channel, bipolar)");
 		configParam(MICRO_PARAM, 0.f, 1.f, 0.5f, "Micro playback speed (+/-3 oct)");
