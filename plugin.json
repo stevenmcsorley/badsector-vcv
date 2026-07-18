@@ -1,0 +1,19 @@
+{
+  "slug": "BadSector",
+  "name": "Bad Sector",
+  "version": "2.0.0",
+  "license": "GPL-3.0-or-later",
+  "brand": "halfagiraf",
+  "author": "Steven McSorley",
+  "authorEmail": "smcsorl@googlemail.com",
+  "authorUrl": "https://github.com/stevenmcsorley",
+  "sourceUrl": "https://github.com/stevenmcsorley/badsector-vcv",
+  "modules": [
+    {
+      "slug": "BadSector",
+      "name": "Bad Sector",
+      "description": "A stereo buffer-corruption and broken-playback processor",
+      "tags": ["Effect", "Granular"]
+    }
+  ]
+}

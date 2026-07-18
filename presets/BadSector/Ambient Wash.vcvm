@@ -1,0 +1,80 @@
+{
+  "plugin": "AR-Helical",
+  "model": "DataBender",
+  "version": "2.6.8",
+  "params": [
+    {
+      "id": 0,
+      "value": 0.78
+    },
+    {
+      "id": 1,
+      "value": 0.0
+    },
+    {
+      "id": 2,
+      "value": 0.5
+    },
+    {
+      "id": 3,
+      "value": 0.5
+    },
+    {
+      "id": 4,
+      "value": 0.0
+    },
+    {
+      "id": 5,
+      "value": 0.0
+    },
+    {
+      "id": 6,
+      "value": 0.0
+    },
+    {
+      "id": 7,
+      "value": 0.0
+    },
+    {
+      "id": 8,
+      "value": 0.0
+    },
+    {
+      "id": 9,
+      "value": 0.0
+    },
+    {
+      "id": 10,
+      "value": 0.0
+    },
+    {
+      "id": 11,
+      "value": 0.0
+    },
+    {
+      "id": 12,
+      "value": 0.0
+    }
+  ],
+  "data": {
+    "macro": true,
+    "frozen": false,
+    "bendOn": true,
+    "breakOn": false,
+    "microRev": false,
+    "microSilence": false,
+    "extClock": false,
+    "stereoUnique": true,
+    "corruptSel": 0,
+    "windowing": 1.0,
+    "stereoWidth": 0.25,
+    "ledBrightness": 1.0,
+    "bendCvAtt": 1.0,
+    "breakCvAtt": 1.0,
+    "corruptCvAtt": 1.0,
+    "gatesMomentary": false,
+    "freezeMomentary": false,
+    "corruptAsReset": false,
+    "originalCorruptOnly": true
+  }
+}
