@@ -676,9 +676,13 @@ struct BadSector : Module {
 		uiBreak = macro ? (breakEnabled ? breakN : 0.f) : breakN;
 		uiCorrupt = corruptN;
 
+		// equal-power crossfade: a linear blend makes the 50% point read loud
+		// (correlated doubling) and full wet feel like a volume drop
 		float mix = freezeMixWet ? 1.f : mixN;
-		outputs[OUT_L_OUTPUT].setVoltage(clampf(lerpf(inL, wetL, mix) * 5.f, -7.f, 7.f));
-		outputs[OUT_R_OUTPUT].setVoltage(clampf(lerpf(inR, wetR, mix) * 5.f, -7.f, 7.f));
+		float dryG = std::cos(mix * (float) M_PI * 0.5f);
+		float wetG = std::sin(mix * (float) M_PI * 0.5f);
+		outputs[OUT_L_OUTPUT].setVoltage(clampf((inL * dryG + wetL * wetG) * 5.f, -7.f, 7.f));
+		outputs[OUT_R_OUTPUT].setVoltage(clampf((inR * dryG + wetR * wetG) * 5.f, -7.f, 7.f));
 
 		// ---- LEDs ----
 		clkBlink = std::max(0.f, clkBlink - dt * 6.f);
