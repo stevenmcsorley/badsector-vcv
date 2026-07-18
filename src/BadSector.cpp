@@ -129,19 +129,6 @@ struct BadSector : Module {
 	float macroSilence[2] = {0.f, 0.f};
 	float tapeStop[2] = {0.f, 0.f};
 	int breakSubs[2] = {0, 0};
-	// tape soul: wow/flutter phases (Bend)
-	float wowPh[2] = {0.f, 0.5f};
-	float flutPh[2] = {0.f, 0.3f};
-	// rhythmic bend patterns: per-division slot count + pattern seed —
-	// reverse flutters and pitch hops landing on musical sub-boundaries
-	int bendSlotN[2] = {1, 1};
-	uint32_t bendSeed[2] = {1u, 2u};
-	static uint32_t bsHash(uint32_t a, uint32_t b) {
-		uint32_t h = a * 0x9E3779B9u ^ (b + 0x7F4A7C15u);
-		h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
-		return h;
-	}
-
 	// corrupt state
 	float decHoldL = 0.f, decHoldR = 0.f; int decCount = 0;
 	float dropEnv = 1.f; int dropTimer = 0;
@@ -210,7 +197,6 @@ struct BadSector : Module {
 			macroRev[c] = revNow[c] = false;
 			macroSilence[c] = tapeStop[c] = speedSlew[c] = 0.f;
 			breakSubs[c] = 0;
-			bendSlotN[c] = 1;
 		}
 	}
 	void restoreDefaults() {
@@ -233,7 +219,6 @@ struct BadSector : Module {
 		restoreDefaults(); extClock = false; stereoWidth = 0.f;
 		internalPhase = 0.f; timeKnobSmooth = 0.5f; externalClock.reset();
 		freezeHead = 0; wasFreezeActive = false;
-		wowPh[0] = flutPh[0] = 0.f; wowPh[1] = 0.5f; flutPh[1] = 0.3f;
 		ledBrightness = 1.f;
 		microRev = false; microSilence = false; corruptSel = 0;
 		originalCorruptOnly = false; microInMacro = false;
@@ -416,6 +401,11 @@ struct BadSector : Module {
 			auto za = [&](int k) { return (k < z) ? 1.f : (k == z ? top : 0.f); };
 			// Manual zones are Octaves then 2 Octaves. Select one range rather
 			// than multiplying both zones into accidental three-octave jumps.
+			// Manual model: ONE playback speed + direction decision per clock
+			// division, whole-division scope, palette growing through the knob
+			// zones Reverse / Octaves / 2 Octaves / Tape Stop / Slew /
+			// Everything. No sub-division patterns, no continuous wobble —
+			// Repeat provides the stutters.
 			for (int c = 0; c < nCh; c++) {
 				float sp = 1.f; bool rv = false;
 				if (z >= 1 && rng.f() < za(1) * 0.35f) rv = true;
@@ -424,30 +414,17 @@ struct BadSector : Module {
 				else if (z >= 2 && rng.f() < za(2) * 0.5f)
 					sp = (rng.u32() & 1) ? 2.f : 0.5f;
 				if (z >= 4 && rng.f() < za(4) * 0.3f) tapeStop[c] = 1.f;
-				// zone 3+: rhythmic flutter patterns — the division splits into
-				// musical slots, each with its own reverse/pitch decision
-				bendSlotN[c] = 1;
-				if (z >= 3 && rng.f() < za(3) * 0.55f) {
-					static const int SL[5] = {2, 3, 4, 6, 8};
-					int hi = (z >= 4) ? 5 : 3;
-					bendSlotN[c] = SL[(int)(rng.f() * hi)];
-					bendSeed[c] = rng.u32();
-					rv = false;   // flutter slots do the reversing — short licks,
-					              // never a fully reversed division
-				}
 				macroSpeed[c] = sp; macroRev[c] = rv;
 				speedSlew[c] = (z >= 5) ? za(5) : 0.f;   // 0..1, scaled by period at use
 			}
 			if (!stereoUnique) {
 				macroSpeed[1] = macroSpeed[0]; macroRev[1] = macroRev[0];
 				tapeStop[1] = tapeStop[0]; speedSlew[1] = speedSlew[0];
-				bendSlotN[1] = bendSlotN[0]; bendSeed[1] = bendSeed[0];
 			}
 		} else {
 			macroSpeed[0] = macroSpeed[1] = 1.f;
 			macroRev[0] = macroRev[1] = false;
 			speedSlew[0] = speedSlew[1] = 0.f;
-			bendSlotN[0] = bendSlotN[1] = 1;
 		}
 
 		if (breakEnabled && breakAmt > 0.001f) {
@@ -652,14 +629,6 @@ struct BadSector : Module {
 		if (inputs[BEND_CV_INPUT].isConnected() && !macro)
 			microOct += inputs[BEND_CV_INPUT].getVoltage();   // 1V/oct in Micro
 		float microSpeed = std::pow(2.f, clampf(microOct, -3.f, 3.f));
-		// tape wow & flutter phases (Bend character; macro only, so Micro
-		// stays exact for 1V/oct melodies)
-		wowPh[0] += dt * 0.55f;  wowPh[1] += dt * 0.62f;
-		flutPh[0] += dt * 7.3f;  flutPh[1] += dt * 6.8f;
-		for (int c = 0; c < 2; c++) {
-			if (wowPh[c] >= 1.f) wowPh[c] -= 1.f;
-			if (flutPh[c] >= 1.f) flutPh[c] -= 1.f;
-		}
 		float wet[2] = {0.f, 0.f};
 		float subPhase[2] = {0.f, 0.f};
 		const std::vector<float>* channelBuf[2] = {&bufL, &bufR};
@@ -684,26 +653,10 @@ struct BadSector : Module {
 			double subLen = (double) sectionLen / subs;
 
 			if (macro) {
-				// optional departure: MICRO knob transposes the whole mangling
-				float baseSpd = macroSpeed[c] * (microInMacro ? microSpeed : 1.f);
-				bool baseRev = macroRev[c];
-				// rhythmic flutter: the same pattern repeats across the whole
-				// division on exact musical sub-boundaries
-				if (bendSlotN[c] > 1 && sectionLen > 0) {
-					// Bend's 2/3/4/6/8-slot gesture is independent of Repeat.
-					// The old code used the Repeat window whenever Repeat > 1,
-					// turning an intended 2-slot flutter into as many as 1024
-					// unrelated decisions per division.
-					uint32_t slotIdx = (uint32_t) bsGridIndex(
-						gridT, sectionLen, bendSlotN[c]);
-					uint32_t hsl = bsHash(bendSeed[c], slotIdx);
-					if ((hsl & 0xFF) < 0x66) baseRev = !baseRev;      // reverse flutter
-					if (((hsl >> 8) & 0xFF) < 0x4D) {                 // pitch hop
-						baseSpd *= ((hsl >> 16) & 1) ? 2.f : 0.5f;
-					}
-				}
-				speedTarget[c] = baseSpd;
-				revNow[c] = baseRev;
+				// one whole-division gesture (manual behaviour); the MICRO
+				// knob can optionally transpose the whole mangling
+				speedTarget[c] = macroSpeed[c] * (microInMacro ? microSpeed : 1.f);
+				revNow[c] = macroRev[c];
 				if (tapeStop[c] > 0.f) {
 					tapeStop[c] = std::max(0.f, tapeStop[c] - dt / clampf(period, 0.05f, 4.f));
 					speedTarget[c] *= tapeStop[c] * tapeStop[c];
@@ -744,18 +697,10 @@ struct BadSector : Module {
 			int wl = std::max(1, bsGridStart(winIdx + 1, sectionLen, subs) - ws);
 			subPhase[c] = clampf((float)(gridT - ws) / (float) wl, 0.f, 1.f);
 			wet[c] = readBuf(*channelBuf[c], readPos[c]);
-			// Bend tape character: subtle wow/flutter wobble
-			float spd = speed[c];
-			if (macro && bendEnabled && bendN > 0.001f) {
-				int pc = stereoUnique ? c : 0;
-				float wf = bendN * (0.007f * std::sin(2.f * (float) M_PI * wowPh[pc])
-				                  + 0.0025f * std::sin(2.f * (float) M_PI * flutPh[pc]));
-				spd *= 1.f + wf;
-			}
 			// the manual's "vinyl clicks and pops" are the natural hard-edge
 			// discontinuities from reverses and pitch jumps (tamed by Glitch
-			// Windowing) — no synthetic crackle is injected
-			readPos[c] += (double) spd * (revNow[c] ? -1.0 : 1.0);
+			// Windowing) — no synthetic crackle or wobble is injected
+			readPos[c] += (double) speed[c] * (revNow[c] ? -1.0 : 1.0);
 
 			if (silence > 0.f && subPhase[c] > (1.f - silence)) wet[c] = 0.f;
 			if (windowing > 0.001f) {
