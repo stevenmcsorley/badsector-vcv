@@ -841,8 +841,11 @@ struct BsChecksumArt : TransparentWidget {
 		float total = clampf(bend * 0.5f + brk * 0.35f + corrupt * 0.45f, 0.f, 1.f);
 
 		NVGcolor ink = nvgRGBA(0xec, 0xe8, 0xdd, (unsigned char)(0x52 + blink * 0x30));
-		NVGcolor cyan = nvgRGBA(0x35, 0xd3, 0xe0, 0xb0);
-		NVGcolor orange = nvgRGBA(0xe8, 0x64, 0x1e, 0xb8);
+		// each damage channel paints in its selector colour:
+		// Bend cyan / Break amber / Corrupt red-orange
+		NVGcolor bendC = nvgRGBA(0x26, 0xd9, 0xff, 0xb4);
+		NVGcolor breakC = nvgRGBA(0xff, 0xa8, 0x15, 0xb4);
+		NVGcolor corruptC = nvgRGBA(0xff, 0x38, 0x0a, 0xbc);
 
 		float rowH = 1.55f;
 		int rows = (int)((Y1 - Y0 - 4.f) / rowH);
@@ -850,8 +853,9 @@ struct BsChecksumArt : TransparentWidget {
 			float y = Y0 + 4.f + r * rowH;
 			uint32_t h = hash(r, 0, slowT);
 			// Break: missing rows, occasionally a repeated (shifted) row
+			bool rowRepeated = false;
 			if (brk > 0.01f && (h & 0xFF) < brk * 120.f) {
-				if (((h >> 20) & 3) == 0) y = Y0 + 4.f + ((r + 1) % rows) * rowH;  // repeat
+				if (((h >> 20) & 3) == 0) { y = Y0 + 4.f + ((r + 1) % rows) * rowH; rowRepeated = true; }
 				else continue;                                                     // missing
 			}
 			// Bend: horizontal displacement, wavier as bend rises
@@ -868,10 +872,15 @@ struct BsChecksumArt : TransparentWidget {
 				bool bright = (sh & 0x300) == 0;
 				nvgBeginPath(vg);
 				nvgRect(vg, mm2px(x), mm2px(y), mm2px(w), mm2px(0.62f + (bright ? 0.2f : 0.f)));
-				// Corrupt: noise blocks flip to orange/cyan
+				// channel colours: corrupt red-orange noise blocks, break amber
+				// on repeated/broken rows, bend cyan on displaced fragments
 				NVGcolor col = ink;
 				if (corrupt > 0.01f && ((sh >> 12) & 0xFF) < corrupt * 90.f)
-					col = (((sh >> 21) & 1) ? orange : cyan);
+					col = corruptC;
+				else if (rowRepeated || (brk > 0.01f && ((sh >> 18) & 0xFF) < brk * 45.f))
+					col = breakC;
+				else if (bend > 0.01f && ((sh >> 14) & 0xFF) < bend * 60.f)
+					col = bendC;
 				else if (bright) col = nvgRGBA(0xec, 0xe8, 0xdd, 0x92);
 				nvgFillColor(vg, col);
 				nvgFill(vg);
