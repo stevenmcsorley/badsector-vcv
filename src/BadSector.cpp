@@ -919,16 +919,19 @@ struct BadSectorWidget : ModuleWidget {
 		};
 		for (int i = 0; i < 6; i++)
 			addInput(createInputCentered<BsPort>(mm2px(Vec(JX[i], CVY)), module, cvIds[i]));
-		static const int gateIds[6] = {
+		static const int gateIds[4] = {
 			BadSector::BEND_GATE_INPUT, BadSector::BREAK_GATE_INPUT, BadSector::CORRUPT_GATE_INPUT,
-			BadSector::FREEZE_GATE_INPUT, BadSector::CLOCK_INPUT, BadSector::RESET_INPUT
+			BadSector::FREEZE_GATE_INPUT
 		};
-		for (int i = 0; i < 6; i++)
+		for (int i = 0; i < 4; i++)
 			addInput(createInputCentered<BsPort>(mm2px(Vec(JX[i], GATEY)), module, gateIds[i]));
-		addInput(createInputCentered<BsPort>(mm2px(Vec(14.f, AUY)), module, BadSector::IN_L_INPUT));
-		addInput(createInputCentered<BsPort>(mm2px(Vec(31.7f, AUY)), module, BadSector::IN_R_INPUT));
-		addOutput(createOutputCentered<BsPort>(mm2px(Vec(49.5f, AUY)), module, BadSector::OUT_L_OUTPUT));
-		addOutput(createOutputCentered<BsPort>(mm2px(Vec(67.2f, AUY)), module, BadSector::OUT_R_OUTPUT));
+		// bottom row on the same grid: audio pairs outside, clock/reset centred
+		addInput(createInputCentered<BsPort>(mm2px(Vec(JX[0], AUY)), module, BadSector::IN_L_INPUT));
+		addInput(createInputCentered<BsPort>(mm2px(Vec(JX[1], AUY)), module, BadSector::IN_R_INPUT));
+		addInput(createInputCentered<BsPort>(mm2px(Vec(JX[2], AUY)), module, BadSector::CLOCK_INPUT));
+		addInput(createInputCentered<BsPort>(mm2px(Vec(JX[3], AUY)), module, BadSector::RESET_INPUT));
+		addOutput(createOutputCentered<BsPort>(mm2px(Vec(JX[4], AUY)), module, BadSector::OUT_L_OUTPUT));
+		addOutput(createOutputCentered<BsPort>(mm2px(Vec(JX[5], AUY)), module, BadSector::OUT_R_OUTPUT));
 	}
 
 	void appendContextMenu(Menu* menu) override {

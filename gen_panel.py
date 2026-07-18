@@ -145,13 +145,12 @@ for x, lab in zip(JX, ["BUFFER", "REPEAT", "MIX", "BEND", "BREAK", "CRPT"]):
     svg.append(text_path(x, CVY - 5.6, lab, 1.6, DIM, spacing=0.15))
 svg.append(text_path(1.6, CVY + 0.6, "CV", 1.5, DIM, anchor="start"))
 svg.append(f'<path d="M 4.6 {CVY} L 73.5 {CVY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
-for x, lab in zip(JX, ["BEND", "BREAK", "CRPT", "FRZ", "CLOCK", "RESET"]):
-    col = INK if lab in ("CLOCK", "RESET") else DIM
-    svg.append(text_path(x, GATEY - 5.6, lab, 1.6, col, spacing=0.15))
+for x, lab in zip(JX[:4], ["BEND", "BREAK", "CRPT", "FRZ"]):
+    svg.append(text_path(x, GATEY - 5.6, lab, 1.6, DIM, spacing=0.15))
 svg.append(text_path(1.6, GATEY + 0.6, "GATE", 1.5, DIM, anchor="start"))
-svg.append(f'<path d="M 5.6 {GATEY} L 73.5 {GATEY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
-for x, lab in zip(AUX, ["IN L", "IN R", "OUT L", "OUT R"]):
-    svg.append(text_path(x, AUY - 6.4, lab, 2.1, INK, spacing=0.3))
+svg.append(f'<path d="M 5.6 {GATEY} L 47.7 {GATEY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
+for x, lab in zip(JX, ["IN L", "IN R", "CLOCK", "RESET", "OUT L", "OUT R"]):
+    svg.append(text_path(x, AUY - 6.4, lab, 1.9, INK, spacing=0.25))
 
 # ---- footers ----
 svg.append(f'<rect x="3.8" y="123.2" width="1.9" height="1.9" fill="none" stroke="{DIM}" stroke-width="0.3"/>')
