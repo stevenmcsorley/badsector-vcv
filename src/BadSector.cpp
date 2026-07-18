@@ -676,8 +676,10 @@ struct BadSector : Module {
 				float wf = bendN * (0.007f * std::sin(2.f * (float) M_PI * wowPh[pc])
 				                  + 0.0025f * std::sin(2.f * (float) M_PI * flutPh[pc]));
 				spd *= 1.f + wf;
-				if (rng.f() < bendN * bendN * 22.f * dt)
-					popEnv[c] = (0.03f + rng.f() * 0.15f) * bendN * (rng.f() < 0.5f ? -1.f : 1.f);
+				// occasional character, not constant frying: cubic rate keeps
+				// crackle rare below noon (~0.4/s at half, ~3/s at full)
+				if (rng.f() < bendN * bendN * bendN * 3.f * dt)
+					popEnv[c] = (0.02f + rng.f() * 0.08f) * bendN * (rng.f() < 0.5f ? -1.f : 1.f);
 			}
 			popEnv[c] *= popDecay;
 			wet[c] += popEnv[c] * (0.6f + 0.4f * rng.bip());
