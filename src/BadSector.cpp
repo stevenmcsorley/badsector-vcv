@@ -129,6 +129,15 @@ struct BadSector : Module {
 	// tape soul: wow/flutter phases (Bend)
 	float wowPh[2] = {0.f, 0.5f};
 	float flutPh[2] = {0.f, 0.3f};
+	// rhythmic bend patterns: per-division slot count + pattern seed —
+	// reverse flutters and pitch hops landing on musical sub-boundaries
+	int bendSlotN[2] = {1, 1};
+	uint32_t bendSeed[2] = {1u, 2u};
+	static uint32_t bsHash(uint32_t a, uint32_t b) {
+		uint32_t h = a * 0x9E3779B9u ^ (b + 0x7F4A7C15u);
+		h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
+		return h;
+	}
 
 	// corrupt state
 	float decHoldL = 0.f, decHoldR = 0.f; int decCount = 0;
@@ -370,21 +379,34 @@ struct BadSector : Module {
 			static const float R3[4] = {4.f, 0.25f, 3.f, 1.f / 3.f};
 			for (int c = 0; c < nCh; c++) {
 				float sp = 1.f; bool rv = false;
-				if (z >= 1 && rng.f() < za(1) * 0.5f) rv = true;
+				if (z >= 1 && rng.f() < za(1) * 0.35f) rv = true;
 				if (z >= 2 && rng.f() < za(2) * 0.5f) sp *= R2[rng.u32() & 3];
 				if (z >= 3 && rng.f() < za(3) * 0.4f) sp *= R3[rng.u32() & 3];
 				if (z >= 4 && rng.f() < za(4) * 0.3f) tapeStop[c] = 1.f;
+				// zone 3+: rhythmic flutter patterns — the division splits into
+				// musical slots, each with its own reverse/pitch decision
+				bendSlotN[c] = 1;
+				if (z >= 3 && rng.f() < za(3) * 0.55f) {
+					static const int SL[5] = {2, 3, 4, 6, 8};
+					int hi = (z >= 4) ? 5 : 3;
+					bendSlotN[c] = SL[(int)(rng.f() * hi)];
+					bendSeed[c] = rng.u32();
+					rv = false;   // flutter slots do the reversing — short licks,
+					              // never a fully reversed division
+				}
 				macroSpeed[c] = sp; macroRev[c] = rv;
 				speedSlew[c] = (z >= 5) ? za(5) : 0.f;   // 0..1, scaled by period at use
 			}
 			if (!stereoUnique) {
 				macroSpeed[1] = macroSpeed[0]; macroRev[1] = macroRev[0];
 				tapeStop[1] = tapeStop[0]; speedSlew[1] = speedSlew[0];
+				bendSlotN[1] = bendSlotN[0]; bendSeed[1] = bendSeed[0];
 			}
 		} else {
 			macroSpeed[0] = macroSpeed[1] = 1.f;
 			macroRev[0] = macroRev[1] = false;
 			speedSlew[0] = speedSlew[1] = 0.f;
+			bendSlotN[0] = bendSlotN[1] = 1;
 		}
 
 		if (breakEnabled && breakAmt > 0.001f) {
@@ -628,8 +650,21 @@ struct BadSector : Module {
 
 			if (macro) {
 				// optional departure: MICRO knob transposes the whole mangling
-				speedTarget[c] = macroSpeed[c] * (microInMacro ? microSpeed : 1.f);
-				revNow[c] = macroRev[c];
+				float baseSpd = macroSpeed[c] * (microInMacro ? microSpeed : 1.f);
+				bool baseRev = macroRev[c];
+				// rhythmic flutter: the same pattern repeats across the whole
+				// division on exact musical sub-boundaries
+				if (bendSlotN[c] > 1 && sectionLen > 0) {
+					float divPhase = clampf((float) samplesSinceTick / sectionLen, 0.f, 0.999f);
+					uint32_t hsl = bsHash(bendSeed[c], (uint32_t)(divPhase * bendSlotN[c]));
+					if ((hsl & 0xFF) < 0x66) baseRev = !baseRev;      // reverse flutter
+					if (((hsl >> 8) & 0xFF) < 0x4D) {                 // pitch hop
+						static const float RS[4] = {2.f, 0.5f, 1.5f, 0.75f};
+						baseSpd *= RS[(hsl >> 16) & 3];
+					}
+				}
+				speedTarget[c] = baseSpd;
+				revNow[c] = baseRev;
 				if (tapeStop[c] > 0.f) {
 					tapeStop[c] = std::max(0.f, tapeStop[c] - dt / clampf(period, 0.05f, 4.f));
 					speedTarget[c] *= tapeStop[c] * tapeStop[c];
