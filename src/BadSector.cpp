@@ -263,9 +263,13 @@ struct BadSector : Module {
 		if (json_t* j = json_object_get(r, "damageSel")) damage.sel = clamp((int) json_integer_value(j), 0, 2);
 		if (json_t* j = json_object_get(r, "cvAmtSel")) cvAmt.sel = clamp((int) json_integer_value(j), 0, 2);
 		if (originalCorruptOnly && corruptSel >= 3) corruptSel = 0;
-		// the physical knobs were restored independently: never jump
-		damage.detach(params[DAMAGE_PARAM].getValue());
-		cvAmt.detach(params[CVAMT_PARAM].getValue());
+		// snap the knobs to the restored channels' stored values
+		damage.caught = true;
+		damage.lastKnob = damage.vals[damage.sel];
+		params[DAMAGE_PARAM].setValue(damage.vals[damage.sel]);
+		cvAmt.caught = true;
+		cvAmt.lastKnob = cvAmt.vals[cvAmt.sel];
+		params[CVAMT_PARAM].setValue(cvAmt.vals[cvAmt.sel]);
 	}
 
 	float readBuf(const std::vector<float>& b, float pos) {
@@ -404,11 +408,22 @@ struct BadSector : Module {
 		float dt = args.sampleTime, sr = args.sampleRate;
 		if (bufLen < 8) return;
 
-		// ---- shared editors: selector buttons + soft-takeover knobs ----
-		if (dmgSelBtn.process(params[DMGSEL_PARAM].getValue() > 0.5f))
-			damage.advance(params[DAMAGE_PARAM].getValue());
-		if (cvSelBtn.process(params[CVSEL_PARAM].getValue() > 0.5f))
-			cvAmt.advance(params[CVAMT_PARAM].getValue());
+		// ---- shared editors: selector buttons recall the stored value (the
+		// knob pointer snaps to show it), then the knob edits directly ----
+		if (dmgSelBtn.process(params[DMGSEL_PARAM].getValue() > 0.5f)) {
+			damage.vals[damage.sel] = params[DAMAGE_PARAM].getValue();
+			damage.sel = (damage.sel + 1) % 3;
+			damage.caught = true;
+			damage.lastKnob = damage.vals[damage.sel];
+			params[DAMAGE_PARAM].setValue(damage.vals[damage.sel]);
+		}
+		if (cvSelBtn.process(params[CVSEL_PARAM].getValue() > 0.5f)) {
+			cvAmt.vals[cvAmt.sel] = params[CVAMT_PARAM].getValue();
+			cvAmt.sel = (cvAmt.sel + 1) % 3;
+			cvAmt.caught = true;
+			cvAmt.lastKnob = cvAmt.vals[cvAmt.sel];
+			params[CVAMT_PARAM].setValue(cvAmt.vals[cvAmt.sel]);
+		}
 		damage.track(params[DAMAGE_PARAM].getValue());
 		cvAmt.track(params[CVAMT_PARAM].getValue());
 
@@ -884,16 +899,16 @@ struct BadSectorWidget : ModuleWidget {
 		addChild(createLightCentered<BsSqLight>(mm2px(Vec(33.6f, 68.f)), module, BadSector::DMGSEL_LIGHT));
 		addParam(createParamCentered<BsSqButton>(mm2px(Vec(47.7f, 68.f)), module, BadSector::CVSEL_PARAM));
 		addChild(createLightCentered<BsSqLight>(mm2px(Vec(47.7f, 68.f)), module, BadSector::CVSEL_LIGHT));
-		addChild(createLightCentered<TinyLight<CyanLight>>(mm2px(Vec(33.6f, 63.2f)), module, BadSector::DOT_DMG_LIGHT));
-		addChild(createLightCentered<TinyLight<CyanLight>>(mm2px(Vec(47.7f, 63.2f)), module, BadSector::DOT_CV_LIGHT));
+		addChild(createLightCentered<TinyLight<CyanLight>>(mm2px(Vec(33.6f, 62.9f)), module, BadSector::DOT_DMG_LIGHT));
+		addChild(createLightCentered<TinyLight<CyanLight>>(mm2px(Vec(47.7f, 62.9f)), module, BadSector::DOT_CV_LIGHT));
 
 		// mode / clock / freeze
-		addParam(createParamCentered<BsSqButtonSmall>(mm2px(Vec(34.f, 56.f)), module, BadSector::MODE_PARAM));
-		addChild(createLightCentered<BsSqLightSmall>(mm2px(Vec(34.f, 56.f)), module, BadSector::MODE_LIGHT));
-		addParam(createParamCentered<BsSqButtonSmall>(mm2px(Vec(40.64f, 56.f)), module, BadSector::CLOCKBTN_PARAM));
-		addChild(createLightCentered<BsSqLightSmall>(mm2px(Vec(40.64f, 56.f)), module, BadSector::CLK_LIGHT));
-		addParam(createParamCentered<BsSqButtonSmall>(mm2px(Vec(47.3f, 56.f)), module, BadSector::FREEZE_PARAM));
-		addChild(createLightCentered<BsSqLightSmall>(mm2px(Vec(47.3f, 56.f)), module, BadSector::FRZ_LIGHT));
+		addParam(createParamCentered<BsSqButtonSmall>(mm2px(Vec(34.f, 54.4f)), module, BadSector::MODE_PARAM));
+		addChild(createLightCentered<BsSqLightSmall>(mm2px(Vec(34.f, 54.4f)), module, BadSector::MODE_LIGHT));
+		addParam(createParamCentered<BsSqButtonSmall>(mm2px(Vec(40.64f, 54.4f)), module, BadSector::CLOCKBTN_PARAM));
+		addChild(createLightCentered<BsSqLightSmall>(mm2px(Vec(40.64f, 54.4f)), module, BadSector::CLK_LIGHT));
+		addParam(createParamCentered<BsSqButtonSmall>(mm2px(Vec(47.3f, 54.4f)), module, BadSector::FREEZE_PARAM));
+		addChild(createLightCentered<BsSqLightSmall>(mm2px(Vec(47.3f, 54.4f)), module, BadSector::FRZ_LIGHT));
 
 		// jacks — CV row, gate row, audio row
 		static const float JX[6] = {9.f, 21.9f, 34.8f, 47.7f, 60.6f, 73.5f};

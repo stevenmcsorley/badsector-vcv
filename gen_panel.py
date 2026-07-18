@@ -34,7 +34,7 @@ KNOBS = {  # centre positions - keep in sync with src/BadSector.cpp
     "DAMAGE": (15.0, 68.0), "CV AMT": (66.28, 68.0),
 }
 SEL1, SEL2 = (33.6, 68.0), (47.7, 68.0)          # square selector buttons
-MODES = [(34.0, 56.0), (40.64, 56.0), (47.3, 56.0)]  # MODE / CLK / FRZ
+MODES = [(34.0, 54.4), (40.64, 54.4), (47.3, 54.4)]  # MODE / CLK / FRZ
 JX = [9.0, 21.9, 34.8, 47.7, 60.6, 73.5]
 CVY, GATEY, AUY = 89.0, 101.0, 114.0
 AUX = [14.0, 31.7, 49.5, 67.2]
@@ -62,6 +62,20 @@ svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}mm" height="{H}mm" vi
 svg.append(f'<rect width="{W}" height="{H}" fill="{BG}"/>')
 svg.append(f'<rect x="0.3" y="0.3" width="{W-0.6}" height="{H-0.6}" fill="none" stroke="{EDGE}" stroke-width="0.6"/>')
 
+# ---- anodised aluminium grain: seeded speckle + faint brushed streaks ----
+import random as _r
+_r.seed(1618)
+for i in range(650):
+    gx, gy = _r.uniform(0.8, W - 1.1), _r.uniform(0.8, H - 1.1)
+    gs = _r.uniform(0.12, 0.32)
+    col = _r.choice(["#121317", "#0b0c0f", "#15161b", "#0a0b0d", "#111215"])
+    svg.append(f'<rect x="{gx:.2f}" y="{gy:.2f}" width="{gs:.2f}" height="{gs:.2f}" fill="{col}"/>')
+for i in range(70):
+    gx, gy0 = _r.uniform(0.8, W - 1.0), _r.uniform(0.0, H - 32.0)
+    gl = _r.uniform(7.0, 30.0)
+    col = _r.choice(["#101116", "#0d0e11"])
+    svg.append(f'<rect x="{gx:.2f}" y="{gy0:.2f}" width="0.12" height="{gl:.2f}" fill="{col}"/>')
+
 # ---- header ----
 svg.append(text_path(W / 2, 6.4, "halfagiraf", 3.0, DIM, spacing=0.55))
 svg.append(text_path(W / 2, 13.6, "BAD SECTOR", 6.2, INK, spacing=0.35, weight=0.22))
@@ -74,7 +88,7 @@ svg.append(text_path(66.2, 15.0, "A3", 1.9, DIM, anchor="start"))
 
 # ---- knob markers + labels ----
 for name, (x, y) in KNOBS.items():
-    svg.append(f'<circle cx="{x}" cy="{y - 9.8}" r="0.7" fill="{INK}"/>')
+    svg.append(f'<circle cx="{x}" cy="{y - 8.8}" r="0.65" fill="{INK}"/>')
     svg.append(text_path(x, y + 11.4, name, 2.7, INK, spacing=0.5))
 
 # ---- hazard markings around DAMAGE ----
@@ -82,19 +96,19 @@ svg.append(f'<path d="M 29.2 59.2 L 5.6 59.2 L 5.6 78.8" fill="none" stroke="{OR
 for i in range(6):  # diagonal hazard stripes, top-left block
     x0 = 6.6 + i * 1.55
     svg.append(f'<path d="M {x0} 63.0 L {x0 + 1.7} 59.8" stroke="{ORANGE}" stroke-width="0.75" fill="none"/>')
-for i in range(3):  # dashes along the bottom
-    svg.append(f'<rect x="{7.0 + i * 3.6}" y="76.6" width="2.4" height="0.7" fill="{ORANGE}"/>')
+for i in range(2):  # dashes along the bottom, right of the label
+    svg.append(f'<rect x="{22.6 + i * 3.4}" y="76.6" width="2.2" height="0.7" fill="{ORANGE}"/>')
 svg.append(f'<rect x="26.4" y="76.0" width="1.7" height="1.7" fill="{ORANGE}"/>')
 # warning triangle
-svg.append(f'<path d="M 19.4 76.0 L 21.0 79.0 L 17.8 79.0 Z" fill="none" stroke="{ORANGE}" stroke-width="0.5" stroke-linejoin="round"/>')
-svg.append(f'<rect x="19.2" y="76.9" width="0.45" height="1.1" fill="{ORANGE}"/>')
-svg.append(f'<rect x="19.2" y="78.3" width="0.45" height="0.4" fill="{ORANGE}"/>')
+svg.append(f'<path d="M 26.0 59.9 L 27.6 62.9 L 24.4 62.9 Z" fill="none" stroke="{ORANGE}" stroke-width="0.5" stroke-linejoin="round"/>')
+svg.append(f'<rect x="25.78" y="60.8" width="0.45" height="1.1" fill="{ORANGE}"/>')
+svg.append(f'<rect x="25.78" y="62.2" width="0.45" height="0.4" fill="{ORANGE}"/>')
 
 # ---- selector buttons: dots + labels ----
 for (x, y), lab in [(SEL1, "DMG"), (SEL2, "CV")]:
-    svg.append(text_path(x, y + 7.6, lab, 1.6, DIM, spacing=0.4))
+    svg.append(text_path(x, y + 7.9, lab, 1.6, DIM, spacing=0.4))
 for (x, y), lab in zip(MODES, ["MODE", "CLK", "FRZ"]):
-    svg.append(text_path(x, y + 6.9, lab, 1.5, DIM, spacing=0.3))
+    svg.append(text_path(x, y + 4.6, lab, 1.4, DIM, spacing=0.3))
 
 # ---- jack labels ----
 for x, lab in zip(JX, ["BUFFER", "REPEAT", "MIX", "BEND", "BREAK", "CRPT"]):
@@ -165,19 +179,19 @@ for i in range(12):
 s5.append(f'<path d="M {" L ".join(pts)} Z" fill="none" stroke="#3a3d45" stroke-width="0.3" stroke-linejoin="round"/>')
 write("screw.svg", 5, s5)
 
-# port: silver knurled bezel (9.8 mm)
+# port: silver knurled bezel (8.4 mm)
 p = []
-pc = 4.9
-p.append(f'<circle cx="{pc}" cy="{pc}" r="4.8" fill="#96999f"/>')
-for i in range(40):
-    a = i * math.pi * 2 / 40
-    x0, y0 = pc + math.cos(a) * 4.1, pc + math.sin(a) * 4.1
-    x1, y1 = pc + math.cos(a) * 4.75, pc + math.sin(a) * 4.75
-    p.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#6c6f75" stroke-width="0.3"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="3.85" fill="#c4c7cc"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="3.1" fill="#54575c"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="2.55" fill="#060709"/>')
-write("port.svg", 9.8, p)
+pc = 4.2
+p.append(f'<circle cx="{pc}" cy="{pc}" r="4.1" fill="#96999f"/>')
+for i in range(36):
+    a = i * math.pi * 2 / 36
+    x0, y0 = pc + math.cos(a) * 3.5, pc + math.sin(a) * 3.5
+    x1, y1 = pc + math.cos(a) * 4.05, pc + math.sin(a) * 4.05
+    p.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#6c6f75" stroke-width="0.28"/>')
+p.append(f'<circle cx="{pc}" cy="{pc}" r="3.3" fill="#c4c7cc"/>')
+p.append(f'<circle cx="{pc}" cy="{pc}" r="2.7" fill="#54575c"/>')
+p.append(f'<circle cx="{pc}" cy="{pc}" r="2.25" fill="#060709"/>')
+write("port.svg", 8.4, p)
 
 # square LED button, unpressed / pressed (7.5 mm)
 for frame, inset in (("sqbtn_0.svg", 0.0), ("sqbtn_1.svg", 0.28)):
