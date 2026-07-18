@@ -74,7 +74,9 @@ struct BadSector : Module {
 	int bufLen = 0, writeHead = 0;
 
 	// playback
-	float readPos[2] = {0.f, 0.f};
+	// double: at high buffer addresses float only resolves 0.25-sample
+	// steps, which detunes fractional speeds and drifts loop points
+	double readPos[2] = {0.0, 0.0};
 	int sectionStart = 0, sectionLen = 4800;
 	int curSub[2] = {0, 0};
 	int samplesSinceTick = 0;
@@ -272,9 +274,9 @@ struct BadSector : Module {
 		params[CVAMT_PARAM].setValue(cvAmt.vals[cvAmt.sel]);
 	}
 
-	float readBuf(const std::vector<float>& b, float pos) {
+	float readBuf(const std::vector<float>& b, double pos) {
 		pos -= std::floor(pos / bufLen) * bufLen;
-		int i0 = (int) pos; float fr = pos - i0;
+		int i0 = (int) pos; float fr = (float)(pos - i0);
 		int i1 = i0 + 1; if (i1 >= bufLen) i1 = 0;
 		return lerpf(b[i0], b[i1], fr);
 	}
@@ -606,7 +608,7 @@ struct BadSector : Module {
 			target = clamp(target, 1, std::max(1, sectionLen / 4));
 			if (subsActive[c] < 1) subsActive[c] = target;
 			int subs = subsActive[c];
-			float subLen = (float) sectionLen / subs;
+			double subLen = (double) sectionLen / subs;
 
 			if (macro) {
 				speedTarget[c] = macroSpeed[c];
@@ -629,11 +631,11 @@ struct BadSector : Module {
 			if (!macro && !silenceEnabled)
 				want = clamp((int)(breakN * subs), 0, subs - 1);   // Traverse
 
-			float subStart = sectionStart + curSub[c] * subLen;
-			float rel = readPos[c] - subStart;
+			double subStart = sectionStart + curSub[c] * subLen;
+			double rel = readPos[c] - subStart;
 			rel -= std::floor(rel / subLen) * subLen;
 			readPos[c] = subStart + rel;
-			subPhase[c] = rel / subLen;
+			subPhase[c] = (float)(rel / subLen);
 			// stutter boundary: latch pending subdivision/traverse changes so
 			// every change lands exactly on the grid
 			bool wrapped = std::fabs(subPhase[c] - lastPhase[c]) > 0.5f;
@@ -644,7 +646,7 @@ struct BadSector : Module {
 			}
 			wet[c] = readBuf(*channelBuf[c], readPos[c]) + bendClick[c];
 			bendClick[c] = 0.f;
-			readPos[c] += speed[c] * (revNow[c] ? -1.f : 1.f);
+			readPos[c] += (double) speed[c] * (revNow[c] ? -1.0 : 1.0);
 
 			if (silence > 0.f && subPhase[c] > (1.f - silence)) wet[c] = 0.f;
 			if (windowing > 0.001f) {
