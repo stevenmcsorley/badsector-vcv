@@ -53,9 +53,9 @@ delay is the price of the guarantee, and disappears with loop-based material.)
 ## Modes
 
 **Macro** — the machine drives: Bend and Break roll new manipulations every clock
-division, per-channel when *Stereo: unique* is enabled. Bend and Break start disabled to
-match Data Bender's restore defaults; enable them with their latching gates or the two
-context-menu switches. Factory presets store their intended enabled states.
+division, per-channel when *Stereo: unique* is enabled. They start enabled because Bad
+Sector has no separate front-panel Bend/Break buttons—their visible amount controls must
+work directly. Their latching gates and context-menu switches can still disable them.
 
 **Micro** — you drive: MICRO sets the speed (BEND CV tracks 1 V/oct), the BEND gate
 toggles reverse, and the Break channel becomes **Traverse** (select the looping

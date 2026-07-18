@@ -97,7 +97,9 @@ struct BadSector : Module {
 	int freezeHead = 0;
 	bool wasFreezeActive = false;
 	bool macro = true;
-	bool frozen = false, bendOn = false, breakOn = false;
+	// Bad Sector has no dedicated Bend/Break buttons, so these must start on;
+	// their amount knobs are the visible enable controls on this panel.
+	bool frozen = false, bendOn = true, breakOn = true;
 	bool microRev = false;
 	bool microSilence = false;   // Traverse default
 	int corruptSel = 0;
@@ -211,9 +213,10 @@ struct BadSector : Module {
 		}
 	}
 	void restoreDefaults() {
-		// Match the hardware restore list: 2% windowing, Bend/Break/Freeze
-		// off, Macro, Unique stereo and latching gate/freeze behaviour.
-		windowing = 0.02f; bendOn = false; breakOn = false; frozen = false;
+		// Match the hardware settings where they map to this panel. Unlike the
+		// hardware, Bad Sector has no dedicated Bend/Break buttons, so leaving
+		// them off would make their visible amount controls appear broken.
+		windowing = 0.02f; bendOn = true; breakOn = true; frozen = false;
 		macro = true; stereoUnique = true;
 		gatesMomentary = false; freezeMomentary = false;
 		freezeMixWet = false; freezeTogglePending = false;
@@ -249,6 +252,7 @@ struct BadSector : Module {
 		json_object_set_new(r, "frozen", json_boolean(frozen));
 		json_object_set_new(r, "bendOn", json_boolean(bendOn));
 		json_object_set_new(r, "breakOn", json_boolean(breakOn));
+		json_object_set_new(r, "enableStateVersion", json_integer(1));
 		json_object_set_new(r, "microRev", json_boolean(microRev));
 		json_object_set_new(r, "microSilence", json_boolean(microSilence));
 		json_object_set_new(r, "extClock", json_boolean(extClock));
@@ -278,6 +282,13 @@ struct BadSector : Module {
 		if (json_t* j = json_object_get(r, "frozen")) frozen = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "bendOn")) bendOn = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "breakOn")) breakOn = json_boolean_value(j);
+		// One-time migration from the release that incorrectly defaulted both
+		// hidden enable states off. Once saved with version 1, user-selected
+		// context-menu/gate states persist normally again.
+		if (!json_object_get(r, "enableStateVersion")) {
+			bendOn = true;
+			breakOn = true;
+		}
 		if (json_t* j = json_object_get(r, "microRev")) microRev = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "microSilence")) microSilence = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "extClock")) extClock = json_boolean_value(j);
