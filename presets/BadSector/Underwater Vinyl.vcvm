@@ -5,19 +5,19 @@
   "params": [
     {
       "id": 0,
-      "value": 0.68
+      "value": 0.45
     },
     {
       "id": 1,
-      "value": 0.0
+      "value": 0.15
     },
     {
       "id": 2,
-      "value": 0.5
+      "value": 0.6
     },
     {
       "id": 3,
-      "value": 0.28
+      "value": 0.95
     },
     {
       "id": 4,
@@ -57,8 +57,8 @@
     "microSilence": false,
     "extClock": false,
     "stereoUnique": true,
-    "corruptSel": 0,
-    "windowing": 1.0,
+    "corruptSel": 1,
+    "windowing": 0.4,
     "stereoWidth": 0.0,
     "ledBrightness": 1.0,
     "gatesMomentary": false,
@@ -66,9 +66,9 @@
     "originalCorruptOnly": true,
     "microInMacro": false,
     "damageVals": [
-      0.28,
-      0.0,
-      0.0
+      0.95,
+      0.1,
+      0.35
     ],
     "cvAmtVals": [
       0.75,
