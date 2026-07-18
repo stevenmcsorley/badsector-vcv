@@ -141,6 +141,8 @@ struct BadSector : Module {
 
 	// telemetry for the reactive checksum artwork
 	float uiBend = 0.f, uiBreak = 0.f, uiCorrupt = 0.f;
+	float uiMicroOct = 0.f, uiTravBlip = 0.f;
+	bool uiMicroRev = false;
 	int uiDivIdx = -1;   // -1 = internal clock
 
 	DbRng rng;
@@ -661,7 +663,10 @@ struct BadSector : Module {
 			lastPhase[c] = subPhase[c];
 			if (wrapped) {
 				if (target != subs) subsActive[c] = target;
-				if (want != curSub[c]) curSub[c] = want;
+				if (want != curSub[c]) {
+					curSub[c] = want;
+					if (!macro) uiTravBlip = 1.f;   // hardware: gold blip on traverse
+				}
 			}
 			wet[c] = readBuf(*channelBuf[c], readPos[c]);
 			// Bend tape character: wow/flutter wobble + scattered vinyl pops
@@ -700,6 +705,9 @@ struct BadSector : Module {
 		applyCorrupt(corruptEffect, corruptN, wetL, wetR, sr);
 
 		// telemetry for the reactive artwork
+		uiMicroOct = microOct;
+		uiMicroRev = reverseEnabled;
+		uiTravBlip = std::max(0.f, uiTravBlip - dt * 4.f);
 		uiBend = macro ? (bendEnabled ? bendN : 0.f) : std::fabs(microOct) / 3.f;
 		uiBreak = macro ? (breakEnabled ? breakN : 0.f) : breakN;
 		uiCorrupt = corruptN;
@@ -884,8 +892,28 @@ struct BsChecksumArt : TransparentWidget {
 			nvgFontFaceId(vg, font->handle);
 			nvgFontSize(vg, mm2px(1.9f));
 			nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-			nvgFillColor(vg, nvgRGBA(0x8f, 0x8c, 0x83, 0xc8));
+			// hardware Break LED behaviour: gold blip when the traverse
+			// subsection changes
+			float tb = module ? module->uiTravBlip : 0.f;
+			NVGcolor stat = (tb > 0.f)
+				? nvgRGBA(0xff, (unsigned char)(0xc2 - 0x36 * (1.f - tb)), 0x3e, 0xd8)
+				: nvgRGBA(0x8f, 0x8c, 0x83, 0xc8);
+			nvgFillColor(vg, stat);
 			nvgText(vg, mm2px((X0 + X1) * 0.5f), mm2px(Y0), txt, NULL);
+			// hardware Micro Bend LED colours, relocated: blue forward, cyan
+			// on an exact octave, green reversed, gold reversed-on-octave
+			if (module && !module->macro) {
+				float oct = module->uiMicroOct;
+				bool rev = module->uiMicroRev;
+				bool onOct = std::fabs(oct - std::round(oct)) < 0.03f;
+				NVGcolor mc = rev ? (onOct ? nvgRGB(0xff, 0xc2, 0x3e) : nvgRGB(0x3f, 0xe0, 0x63))
+				                  : (onOct ? nvgRGB(0x35, 0xd3, 0xe0) : nvgRGB(0x5a, 0x8d, 0xff));
+				char mtxt[24];
+				snprintf(mtxt, sizeof(mtxt), "M%+.2f%s", oct, rev ? "R" : "");
+				nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP);
+				nvgFillColor(vg, mc);
+				nvgText(vg, mm2px(X1 - 0.6f), mm2px(Y0 + 2.6f), mtxt, NULL);
+			}
 		}
 	}
 };
