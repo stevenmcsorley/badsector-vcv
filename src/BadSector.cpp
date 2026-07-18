@@ -126,10 +126,9 @@ struct BadSector : Module {
 	float macroSilence[2] = {0.f, 0.f};
 	float tapeStop[2] = {0.f, 0.f};
 	int breakSubs[2] = {0, 0};
-	// tape soul: wow/flutter phases and vinyl pop envelopes (Bend)
+	// tape soul: wow/flutter phases (Bend)
 	float wowPh[2] = {0.f, 0.5f};
 	float flutPh[2] = {0.f, 0.3f};
-	float popEnv[2] = {0.f, 0.f};
 
 	// corrupt state
 	float decHoldL = 0.f, decHoldR = 0.f; int decCount = 0;
@@ -209,7 +208,6 @@ struct BadSector : Module {
 		restoreDefaults(); extClock = false; stereoWidth = 0.f;
 		freezeHead = 0; wasFreezeActive = false;
 		wowPh[0] = flutPh[0] = 0.f; wowPh[1] = 0.5f; flutPh[1] = 0.3f;
-		popEnv[0] = popEnv[1] = 0.f;
 		ledBrightness = 1.f;
 		originalCorruptOnly = true; freezeButtonWasHigh = false;
 		damage.reset(0.f, 0.f, 0.f);
@@ -618,7 +616,6 @@ struct BadSector : Module {
 			if (wowPh[c] >= 1.f) wowPh[c] -= 1.f;
 			if (flutPh[c] >= 1.f) flutPh[c] -= 1.f;
 		}
-		float popDecay = std::exp(-1.f / (0.0018f * sr));
 		float wet[2] = {0.f, 0.f};
 		float subPhase[2] = {0.f, 0.f};
 		const std::vector<float>* channelBuf[2] = {&bufL, &bufR};
@@ -676,13 +673,10 @@ struct BadSector : Module {
 				float wf = bendN * (0.007f * std::sin(2.f * (float) M_PI * wowPh[pc])
 				                  + 0.0025f * std::sin(2.f * (float) M_PI * flutPh[pc]));
 				spd *= 1.f + wf;
-				// occasional character, not constant frying: cubic rate keeps
-				// crackle rare below noon (~0.4/s at half, ~3/s at full)
-				if (rng.f() < bendN * bendN * bendN * 3.f * dt)
-					popEnv[c] = (0.02f + rng.f() * 0.08f) * bendN * (rng.f() < 0.5f ? -1.f : 1.f);
 			}
-			popEnv[c] *= popDecay;
-			wet[c] += popEnv[c] * (0.6f + 0.4f * rng.bip());
+			// the manual's "vinyl clicks and pops" are the natural hard-edge
+			// discontinuities from reverses and pitch jumps (tamed by Glitch
+			// Windowing) — no synthetic crackle is injected
 			readPos[c] += (double) spd * (revNow[c] ? -1.0 : 1.0);
 
 			if (silence > 0.f && subPhase[c] > (1.f - silence)) wet[c] = 0.f;
