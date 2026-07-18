@@ -94,8 +94,8 @@ svg.append(text_path(66.2, 15.0, "A3", 1.9, DIM, anchor="start"))
 
 # ---- knob markers + labels ----
 for name, (x, y) in KNOBS.items():
-    svg.append(f'<circle cx="{x}" cy="{y - 8.8}" r="0.65" fill="{INK}"/>')
-    svg.append(text_path(x, y + 11.4, name, 2.7, INK, spacing=0.5))
+    svg.append(f'<circle cx="{x}" cy="{y - 8.0}" r="0.6" fill="{INK}"/>')
+    svg.append(text_path(x, y + 10.4, name, 2.7, INK, spacing=0.5))
 
 # ---- hazard bar beside DAMAGE (reference style) ----
 def _clip_band(rect, c0, c1):
@@ -112,8 +112,8 @@ def _clip_band(rect, c0, c1):
     poly = clip(rect, lambda pt: (pt[0] + pt[1]) - c0)
     return clip(poly, lambda pt: c1 - (pt[0] + pt[1]))
 
-BX0, BX1, BY0, BY1 = 3.6, 7.7, 57.5, 79.5   # the bar
-STRIPE_Y1 = 73.2                              # stripes stop; triangle zone below
+BX0, BX1, BY0, BY1 = 3.6, 7.7, 59.0, 77.8   # the bar
+STRIPE_Y1 = 71.8                              # stripes stop; triangle zone below
 svg.append(f'<rect x="{BX0}" y="{BY0}" width="{BX1-BX0}" height="{BY1-BY0}" fill="#0a0b0e"/>')
 srect = [(BX0, BY0), (BX1, BY0), (BX1, STRIPE_Y1), (BX0, STRIPE_Y1)]
 c = BX0 + BY0 - 3.4
@@ -126,9 +126,9 @@ while c < BX1 + STRIPE_Y1:
 svg.append(f'<rect x="{BX0}" y="{BY0}" width="{BX1-BX0}" height="{BY1-BY0}" fill="none" stroke="{ORANGE}" stroke-width="0.4"/>')
 svg.append(f'<path d="M {BX0} {STRIPE_Y1} L {BX1} {STRIPE_Y1}" stroke="{ORANGE}" stroke-width="0.3"/>')
 # warning triangle in the solid zone at the foot of the bar
-svg.append(f'<path d="M 5.65 74.4 L 7.2 77.6 L 4.1 77.6 Z" fill="none" stroke="{ORANGE}" stroke-width="0.45" stroke-linejoin="round"/>')
-svg.append(f'<rect x="5.43" y="75.3" width="0.44" height="1.1" fill="{ORANGE}"/>')
-svg.append(f'<rect x="5.43" y="76.7" width="0.44" height="0.4" fill="{ORANGE}"/>')
+svg.append(f'<path d="M 5.65 72.9 L 7.2 76.1 L 4.1 76.1 Z" fill="none" stroke="{ORANGE}" stroke-width="0.45" stroke-linejoin="round"/>')
+svg.append(f'<rect x="5.43" y="73.8" width="0.44" height="1.1" fill="{ORANGE}"/>')
+svg.append(f'<rect x="5.43" y="75.2" width="0.44" height="0.4" fill="{ORANGE}"/>')
 # dashes + block, right of the DAMAGE label
 for i in range(2):
     svg.append(f'<rect x="{22.6 + i * 3.4}" y="76.6" width="2.2" height="0.7" fill="{ORANGE}"/>')
@@ -143,15 +143,15 @@ for (x, y), lab in zip(MODES, ["MODE", "CLK", "FRZ"]):
 # ---- jack labels ----
 for x, lab in zip(JX, ["BUFFER", "REPEAT", "MIX", "BEND", "BREAK", "CRPT"]):
     svg.append(text_path(x, CVY - 5.6, lab, 1.6, DIM, spacing=0.15))
-svg.append(text_path(1.8, CVY - 8.9, "CV", 1.5, DIM, anchor="start"))
+svg.append(text_path(1.6, CVY + 0.6, "CV", 1.5, DIM, anchor="start"))
+svg.append(f'<path d="M 4.6 {CVY} L 73.5 {CVY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
 for x, lab in zip(JX, ["BEND", "BREAK", "CRPT", "FRZ", "CLOCK", "RESET"]):
     col = INK if lab in ("CLOCK", "RESET") else DIM
     svg.append(text_path(x, GATEY - 5.6, lab, 1.6, col, spacing=0.15))
-svg.append(text_path(1.8, GATEY - 8.9, "GATE", 1.5, DIM, anchor="start"))
+svg.append(text_path(1.6, GATEY + 0.6, "GATE", 1.5, DIM, anchor="start"))
+svg.append(f'<path d="M 5.6 {GATEY} L 73.5 {GATEY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
 for x, lab in zip(AUX, ["IN L", "IN R", "OUT L", "OUT R"]):
     svg.append(text_path(x, AUY - 6.4, lab, 2.1, INK, spacing=0.3))
-# orange tick above outputs
-svg.append(f'<path d="M 43.0 105.8 L 73.4 105.8" stroke="{ORANGE}" stroke-width="0.35" fill="none"/>')
 
 # ---- footers ----
 svg.append(f'<rect x="3.8" y="123.2" width="1.9" height="1.9" fill="none" stroke="{DIM}" stroke-width="0.3"/>')
@@ -169,33 +169,30 @@ def write(name, size, body):
     s += "\n".join(body) + "\n</svg>\n"
     open(os.path.join(BASE, "res", "components", name), "w").write(s)
 
-# knob: anodised black cap with sheen, knurled rim, exclamation pointer (16 mm)
+# knob: anodised black cap with sheen, knurled rim, exclamation pointer (14 mm)
 k = []
-c = 8.0
+c = 7.0
 k.append('<defs>')
-k.append('<radialGradient id="cap" cx="8" cy="5.8" r="9.5" gradientUnits="userSpaceOnUse">'
+k.append('<radialGradient id="cap" cx="7" cy="5.1" r="8.3" gradientUnits="userSpaceOnUse">'
          '<stop offset="0" stop-color="#2f323a"/><stop offset="0.5" stop-color="#191b20"/>'
          '<stop offset="1" stop-color="#0a0b0e"/></radialGradient>')
-k.append('<radialGradient id="rim" cx="8" cy="8" r="8" gradientUnits="userSpaceOnUse">'
+k.append('<radialGradient id="rim" cx="7" cy="7" r="7" gradientUnits="userSpaceOnUse">'
          '<stop offset="0.72" stop-color="#15171b"/><stop offset="0.95" stop-color="#08090b"/>'
          '<stop offset="1" stop-color="#030405"/></radialGradient>')
 k.append('</defs>')
-k.append(f'<circle cx="{c}" cy="{c}" r="7.85" fill="url(#rim)"/>')
-for i in range(56):  # fine knurl on the rim
-    a = i * math.pi * 2 / 56
-    x0, y0 = c + math.cos(a) * 7.0, c + math.sin(a) * 7.0
-    x1, y1 = c + math.cos(a) * 7.72, c + math.sin(a) * 7.72
-    k.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#1e2026" stroke-width="0.30"/>')
-k.append(f'<circle cx="{c}" cy="{c}" r="6.6" fill="#08090b"/>')      # groove between rim and cap
-k.append(f'<circle cx="{c}" cy="{c}" r="6.25" fill="url(#cap)"/>')
-# light catching the top edge of the cap
-k.append('<path d="M 3.1 5.9 A 6.25 6.25 0 0 1 12.9 5.9" stroke="#50545e" stroke-width="0.32" fill="none"/>')
-# soft lower-edge shadow line
-k.append('<path d="M 3.4 10.6 A 6.25 6.25 0 0 0 12.6 10.6" stroke="#060708" stroke-width="0.4" fill="none"/>')
-# pointer: line to the rim with a dot at the centre end
-k.append('<rect x="7.62" y="2.1" width="0.76" height="4.3" rx="0.38" fill="#f2efe6"/>')
-k.append(f'<circle cx="{c}" cy="7.1" r="0.88" fill="#f2efe6"/>')
-write("knob.svg", 16, k)
+k.append(f'<circle cx="{c}" cy="{c}" r="6.85" fill="url(#rim)"/>')
+for i in range(52):
+    a = i * math.pi * 2 / 52
+    x0, y0 = c + math.cos(a) * 6.1, c + math.sin(a) * 6.1
+    x1, y1 = c + math.cos(a) * 6.73, c + math.sin(a) * 6.73
+    k.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#1e2026" stroke-width="0.27"/>')
+k.append(f'<circle cx="{c}" cy="{c}" r="5.75" fill="#08090b"/>')
+k.append(f'<circle cx="{c}" cy="{c}" r="5.45" fill="url(#cap)"/>')
+k.append('<path d="M 2.6 5.2 A 5.45 5.45 0 0 1 11.4 5.2" stroke="#50545e" stroke-width="0.3" fill="none"/>')
+k.append('<path d="M 3.0 9.2 A 5.45 5.45 0 0 0 11.0 9.2" stroke="#060708" stroke-width="0.36" fill="none"/>')
+k.append('<rect x="6.67" y="1.85" width="0.66" height="3.75" rx="0.33" fill="#f2efe6"/>')
+k.append(f'<circle cx="{c}" cy="6.2" r="0.78" fill="#f2efe6"/>')
+write("knob.svg", 14, k)
 
 # screw: black torx (5 mm)
 s5 = []
@@ -209,19 +206,19 @@ for i in range(12):
 s5.append(f'<path d="M {" L ".join(pts)} Z" fill="none" stroke="#3a3d45" stroke-width="0.3" stroke-linejoin="round"/>')
 write("screw.svg", 5, s5)
 
-# port: silver knurled bezel (8.4 mm)
+# port: silver knurled bezel (7.6 mm)
 p = []
-pc = 4.2
-p.append(f'<circle cx="{pc}" cy="{pc}" r="4.1" fill="#96999f"/>')
-for i in range(36):
-    a = i * math.pi * 2 / 36
-    x0, y0 = pc + math.cos(a) * 3.5, pc + math.sin(a) * 3.5
-    x1, y1 = pc + math.cos(a) * 4.05, pc + math.sin(a) * 4.05
-    p.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#6c6f75" stroke-width="0.28"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="3.3" fill="#c4c7cc"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="2.7" fill="#54575c"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="2.25" fill="#060709"/>')
-write("port.svg", 8.4, p)
+pc = 3.8
+p.append(f'<circle cx="{pc}" cy="{pc}" r="3.7" fill="#96999f"/>')
+for i in range(32):
+    a = i * math.pi * 2 / 32
+    x0, y0 = pc + math.cos(a) * 3.15, pc + math.sin(a) * 3.15
+    x1, y1 = pc + math.cos(a) * 3.66, pc + math.sin(a) * 3.66
+    p.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#6c6f75" stroke-width="0.26"/>')
+p.append(f'<circle cx="{pc}" cy="{pc}" r="2.95" fill="#c4c7cc"/>')
+p.append(f'<circle cx="{pc}" cy="{pc}" r="2.42" fill="#54575c"/>')
+p.append(f'<circle cx="{pc}" cy="{pc}" r="2.0" fill="#060709"/>')
+write("port.svg", 7.6, p)
 
 # square LED button, unpressed / pressed (7.5 mm)
 for frame, inset in (("sqbtn_0.svg", 0.0), ("sqbtn_1.svg", 0.28)):
