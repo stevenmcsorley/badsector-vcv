@@ -60,6 +60,12 @@ def text_path(x, y, s, h, color, anchor="middle", spacing=0.0, weight=0.0):
 
 svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}mm" height="{H}mm" viewBox="0 0 {W} {H}">']
 svg.append(f'<rect width="{W}" height="{H}" fill="{BG}"/>')
+# glow geometry + colours sampled from the ComfyUI render (badsector_plate.png)
+svg.append('<defs><radialGradient id="anod" gradientUnits="userSpaceOnUse" cx="36.6" cy="10.0" r="112">'
+           '<stop  offset="0" style="stop-color:#404046"/>'
+           '<stop  offset="0.38" style="stop-color:#232327"/>'
+           '<stop  offset="1" style="stop-color:#131218"/></radialGradient></defs>')
+svg.append(f'<rect width="{W}" height="{H}" fill="url(#anod)"/>')
 svg.append(f'<rect x="0.3" y="0.3" width="{W-0.6}" height="{H-0.6}" fill="none" stroke="{EDGE}" stroke-width="0.6"/>')
 
 # ---- anodised aluminium grain: seeded speckle + faint brushed streaks ----
@@ -70,11 +76,11 @@ for i in range(650):
     gs = _r.uniform(0.12, 0.32)
     col = _r.choice(["#121317", "#0b0c0f", "#15161b", "#0a0b0d", "#111215"])
     svg.append(f'<rect x="{gx:.2f}" y="{gy:.2f}" width="{gs:.2f}" height="{gs:.2f}" fill="{col}"/>')
-for i in range(70):
-    gx, gy0 = _r.uniform(0.8, W - 1.0), _r.uniform(0.0, H - 32.0)
-    gl = _r.uniform(7.0, 30.0)
-    col = _r.choice(["#101116", "#0d0e11"])
-    svg.append(f'<rect x="{gx:.2f}" y="{gy0:.2f}" width="0.12" height="{gl:.2f}" fill="{col}"/>')
+for i in range(44):
+    gx, gy0 = _r.uniform(0.8, W - 1.0), _r.uniform(0.0, H - 16.0)
+    gl = _r.uniform(4.0, 12.0)
+    col = _r.choice(["#1a1b20", "#26272c"])
+    svg.append(f'<rect x="{gx:.2f}" y="{gy0:.2f}" width="0.10" height="{gl:.2f}" fill="{col}"/>')
 
 # ---- header ----
 svg.append(text_path(W / 2, 6.4, "halfagiraf", 3.0, DIM, spacing=0.55))
@@ -91,18 +97,42 @@ for name, (x, y) in KNOBS.items():
     svg.append(f'<circle cx="{x}" cy="{y - 8.8}" r="0.65" fill="{INK}"/>')
     svg.append(text_path(x, y + 11.4, name, 2.7, INK, spacing=0.5))
 
-# ---- hazard markings around DAMAGE ----
-svg.append(f'<path d="M 29.2 59.2 L 5.6 59.2 L 5.6 78.8" fill="none" stroke="{ORANGE}" stroke-width="0.55"/>')
-for i in range(6):  # diagonal hazard stripes, top-left block
-    x0 = 6.6 + i * 1.55
-    svg.append(f'<path d="M {x0} 63.0 L {x0 + 1.7} 59.8" stroke="{ORANGE}" stroke-width="0.75" fill="none"/>')
-for i in range(2):  # dashes along the bottom, right of the label
+# ---- hazard bar beside DAMAGE (reference style) ----
+def _clip_band(rect, c0, c1):
+    def clip(poly, fn):
+        out = []
+        for i in range(len(poly)):
+            a, b = poly[i], poly[(i + 1) % len(poly)]
+            fa, fb = fn(a), fn(b)
+            if fa >= 0: out.append(a)
+            if (fa >= 0) != (fb >= 0):
+                t = fa / (fa - fb)
+                out.append((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
+        return out
+    poly = clip(rect, lambda pt: (pt[0] + pt[1]) - c0)
+    return clip(poly, lambda pt: c1 - (pt[0] + pt[1]))
+
+BX0, BX1, BY0, BY1 = 3.6, 7.7, 57.5, 79.5   # the bar
+STRIPE_Y1 = 73.2                              # stripes stop; triangle zone below
+svg.append(f'<rect x="{BX0}" y="{BY0}" width="{BX1-BX0}" height="{BY1-BY0}" fill="#0a0b0e"/>')
+srect = [(BX0, BY0), (BX1, BY0), (BX1, STRIPE_Y1), (BX0, STRIPE_Y1)]
+c = BX0 + BY0 - 3.4
+while c < BX1 + STRIPE_Y1:
+    poly = _clip_band(srect, c, c + 1.7)
+    if len(poly) >= 3:
+        pts = " ".join(f"{'M' if i == 0 else 'L'} {x:.2f} {y:.2f}" for i, (x, y) in enumerate(poly))
+        svg.append(f'<path d="{pts} Z" fill="{ORANGE}"/>')
+    c += 3.4
+svg.append(f'<rect x="{BX0}" y="{BY0}" width="{BX1-BX0}" height="{BY1-BY0}" fill="none" stroke="{ORANGE}" stroke-width="0.4"/>')
+svg.append(f'<path d="M {BX0} {STRIPE_Y1} L {BX1} {STRIPE_Y1}" stroke="{ORANGE}" stroke-width="0.3"/>')
+# warning triangle in the solid zone at the foot of the bar
+svg.append(f'<path d="M 5.65 74.4 L 7.2 77.6 L 4.1 77.6 Z" fill="none" stroke="{ORANGE}" stroke-width="0.45" stroke-linejoin="round"/>')
+svg.append(f'<rect x="5.43" y="75.3" width="0.44" height="1.1" fill="{ORANGE}"/>')
+svg.append(f'<rect x="5.43" y="76.7" width="0.44" height="0.4" fill="{ORANGE}"/>')
+# dashes + block, right of the DAMAGE label
+for i in range(2):
     svg.append(f'<rect x="{22.6 + i * 3.4}" y="76.6" width="2.2" height="0.7" fill="{ORANGE}"/>')
 svg.append(f'<rect x="26.4" y="76.0" width="1.7" height="1.7" fill="{ORANGE}"/>')
-# warning triangle
-svg.append(f'<path d="M 26.0 59.9 L 27.6 62.9 L 24.4 62.9 Z" fill="none" stroke="{ORANGE}" stroke-width="0.5" stroke-linejoin="round"/>')
-svg.append(f'<rect x="25.78" y="60.8" width="0.45" height="1.1" fill="{ORANGE}"/>')
-svg.append(f'<rect x="25.78" y="62.2" width="0.45" height="0.4" fill="{ORANGE}"/>')
 
 # ---- selector buttons: dots + labels ----
 for (x, y), lab in [(SEL1, "DMG"), (SEL2, "CV")]:
