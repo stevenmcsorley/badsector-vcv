@@ -124,8 +124,11 @@ struct BadSector : Module {
 	bool macroRev[2] = {false, false};
 	float macroSilence[2] = {0.f, 0.f};
 	float tapeStop[2] = {0.f, 0.f};
-	float bendClick[2] = {0.f, 0.f};
 	int breakSubs[2] = {0, 0};
+	// tape soul: wow/flutter phases and vinyl pop envelopes (Bend)
+	float wowPh[2] = {0.f, 0.5f};
+	float flutPh[2] = {0.f, 0.3f};
+	float popEnv[2] = {0.f, 0.f};
 
 	// corrupt state
 	float decHoldL = 0.f, decHoldR = 0.f; int decCount = 0;
@@ -202,6 +205,8 @@ struct BadSector : Module {
 		lastPhase[0] = lastPhase[1] = 0.f;
 		restoreDefaults(); extClock = false; stereoWidth = 0.f;
 		freezeHead = 0; wasFreezeActive = false;
+		wowPh[0] = flutPh[0] = 0.f; wowPh[1] = 0.5f; flutPh[1] = 0.3f;
+		popEnv[0] = popEnv[1] = 0.f;
 		ledBrightness = 1.f;
 		originalCorruptOnly = true; freezeButtonWasHigh = false;
 		damage.reset(0.f, 0.f, 0.f);
@@ -366,19 +371,17 @@ struct BadSector : Module {
 				if (z >= 2 && rng.f() < za(2) * 0.5f) sp *= R2[rng.u32() & 3];
 				if (z >= 3 && rng.f() < za(3) * 0.4f) sp *= R3[rng.u32() & 3];
 				if (z >= 4 && rng.f() < za(4) * 0.3f) tapeStop[c] = 1.f;
-				bendClick[c] = (rng.f() < bendAmt * 0.35f) ? rng.bip() * bendAmt * 0.16f : 0.f;
 				macroSpeed[c] = sp; macroRev[c] = rv;
-				speedSlew[c] = (z >= 5) ? za(5) * 0.25f : 0.f;
+				speedSlew[c] = (z >= 5) ? za(5) : 0.f;   // 0..1, scaled by period at use
 			}
 			if (!stereoUnique) {
 				macroSpeed[1] = macroSpeed[0]; macroRev[1] = macroRev[0];
-				tapeStop[1] = tapeStop[0]; bendClick[1] = bendClick[0]; speedSlew[1] = speedSlew[0];
+				tapeStop[1] = tapeStop[0]; speedSlew[1] = speedSlew[0];
 			}
 		} else {
 			macroSpeed[0] = macroSpeed[1] = 1.f;
 			macroRev[0] = macroRev[1] = false;
 			speedSlew[0] = speedSlew[1] = 0.f;
-			bendClick[0] = bendClick[1] = 0.f;
 		}
 
 		if (breakEnabled && breakAmt > 0.001f) {
@@ -602,6 +605,15 @@ struct BadSector : Module {
 		if (inputs[BEND_CV_INPUT].isConnected() && !macro)
 			microOct += inputs[BEND_CV_INPUT].getVoltage();   // 1V/oct in Micro
 		float microSpeed = std::pow(2.f, clampf(microOct, -3.f, 3.f));
+		// tape wow & flutter phases (Bend character; macro only, so Micro
+		// stays exact for 1V/oct melodies)
+		wowPh[0] += dt * 0.55f;  wowPh[1] += dt * 0.62f;
+		flutPh[0] += dt * 7.3f;  flutPh[1] += dt * 6.8f;
+		for (int c = 0; c < 2; c++) {
+			if (wowPh[c] >= 1.f) wowPh[c] -= 1.f;
+			if (flutPh[c] >= 1.f) flutPh[c] -= 1.f;
+		}
+		float popDecay = std::exp(-1.f / (0.0018f * sr));
 		float wet[2] = {0.f, 0.f};
 		float subPhase[2] = {0.f, 0.f};
 		const std::vector<float>* channelBuf[2] = {&bufL, &bufR};
@@ -624,9 +636,10 @@ struct BadSector : Module {
 				revNow[c] = reverseEnabled;
 				speedSlew[c] = 0.f;
 			}
-			if (speedSlew[c] > 1e-4f)
-				speed[c] += (speedTarget[c] - speed[c]) * (1.f - std::exp(-dt / speedSlew[c]));
-			else speed[c] = speedTarget[c];
+			// slew scaled to the division so glides complete musically at any
+			// tempo; the 4ms floor de-zippers hard varispeed switches
+			float slewSec = std::max(0.004f, speedSlew[c] * 0.35f * clampf(period, 0.05f, 4.f));
+			speed[c] += (speedTarget[c] - speed[c]) * (1.f - std::exp(-dt / slewSec));
 
 			float silence = macro ? macroSilence[c] : (silenceEnabled ? breakN * 0.9f : 0.f);
 			int want = curSub[c];
@@ -646,9 +659,20 @@ struct BadSector : Module {
 				if (target != subs) subsActive[c] = target;
 				if (want != curSub[c]) curSub[c] = want;
 			}
-			wet[c] = readBuf(*channelBuf[c], readPos[c]) + bendClick[c];
-			bendClick[c] = 0.f;
-			readPos[c] += (double) speed[c] * (revNow[c] ? -1.0 : 1.0);
+			wet[c] = readBuf(*channelBuf[c], readPos[c]);
+			// Bend tape character: wow/flutter wobble + scattered vinyl pops
+			float spd = speed[c];
+			if (macro && bendEnabled && bendN > 0.001f) {
+				int pc = stereoUnique ? c : 0;
+				float wf = bendN * (0.007f * std::sin(2.f * (float) M_PI * wowPh[pc])
+				                  + 0.0025f * std::sin(2.f * (float) M_PI * flutPh[pc]));
+				spd *= 1.f + wf;
+				if (rng.f() < bendN * bendN * 22.f * dt)
+					popEnv[c] = (0.03f + rng.f() * 0.15f) * bendN * (rng.f() < 0.5f ? -1.f : 1.f);
+			}
+			popEnv[c] *= popDecay;
+			wet[c] += popEnv[c] * (0.6f + 0.4f * rng.bip());
+			readPos[c] += (double) spd * (revNow[c] ? -1.0 : 1.0);
 
 			if (silence > 0.f && subPhase[c] > (1.f - silence)) wet[c] = 0.f;
 			if (windowing > 0.001f) {
