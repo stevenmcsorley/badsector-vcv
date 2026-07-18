@@ -106,6 +106,7 @@ struct BadSector : Module {
 	bool gatesMomentary = false;
 	bool freezeMomentary = false;
 	bool originalCorruptOnly = true;
+	bool microInMacro = false;   // MICRO knob as global varispeed under the Macro automation
 	bool freezeMixWet = false;
 	bool freezeTogglePending = false;
 	bool freezeButtonWasHigh = false;
@@ -233,6 +234,7 @@ struct BadSector : Module {
 		json_object_set_new(r, "gatesMomentary", json_boolean(gatesMomentary));
 		json_object_set_new(r, "freezeMomentary", json_boolean(freezeMomentary));
 		json_object_set_new(r, "originalCorruptOnly", json_boolean(originalCorruptOnly));
+		json_object_set_new(r, "microInMacro", json_boolean(microInMacro));
 		json_t* dv = json_array();
 		json_t* av = json_array();
 		for (int i = 0; i < 3; i++) {
@@ -261,6 +263,7 @@ struct BadSector : Module {
 		if (json_t* j = json_object_get(r, "gatesMomentary")) gatesMomentary = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "freezeMomentary")) freezeMomentary = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "originalCorruptOnly")) originalCorruptOnly = json_boolean_value(j);
+		if (json_t* j = json_object_get(r, "microInMacro")) microInMacro = json_boolean_value(j);
 		json_t* dv = json_object_get(r, "damageVals");
 		json_t* av = json_object_get(r, "cvAmtVals");
 		for (int i = 0; i < 3; i++) {
@@ -625,7 +628,8 @@ struct BadSector : Module {
 			double subLen = (double) sectionLen / subs;
 
 			if (macro) {
-				speedTarget[c] = macroSpeed[c];
+				// optional departure: MICRO knob transposes the whole mangling
+				speedTarget[c] = macroSpeed[c] * (microInMacro ? microSpeed : 1.f);
 				revNow[c] = macroRev[c];
 				if (tapeStop[c] > 0.f) {
 					tapeStop[c] = std::max(0.f, tapeStop[c] - dt / clampf(period, 0.05f, 4.f));
@@ -718,9 +722,13 @@ struct BadSector : Module {
 		// selector buttons: mode colour; blink while awaiting soft pickup
 		float dBlink = damage.caught ? 1.f : (0.35f + 0.65f * (std::sin(args.frame * 0.0006f) > 0.f ? 1.f : 0.f));
 		float aBlink = cvAmt.caught ? 1.f : (0.35f + 0.65f * (std::sin(args.frame * 0.0006f) > 0.f ? 1.f : 0.f));
+		// the Bend channel is inert in Micro (manual speed replaces the
+		// automation) — dim its colour there so the knob never reads as dead
+		float dAct = (!macro && damage.sel == 0) ? 0.25f : 1.f;
+		float aAct = (!macro && cvAmt.sel == 0) ? 0.25f : 1.f;
 		for (int i = 0; i < 3; i++) {
-			setLed(DMGSEL_LIGHT + i, SEL_COL[damage.sel][i] * dBlink);
-			setLed(CVSEL_LIGHT + i, SEL_COL[cvAmt.sel][i] * aBlink);
+			setLed(DMGSEL_LIGHT + i, SEL_COL[damage.sel][i] * dBlink * dAct);
+			setLed(CVSEL_LIGHT + i, SEL_COL[cvAmt.sel][i] * aBlink * aAct);
 		}
 		// dots: the selected channel's stored value at a glance
 		setLed(DOT_DMG_LIGHT, 0.1f + 0.9f * damage.vals[damage.sel]);
@@ -970,6 +978,7 @@ struct BadSectorWidget : ModuleWidget {
 		menu->addChild(createBoolPtrMenuItem("Original 3 corrupt effects only (hardware)", "", &m->originalCorruptOnly));
 		menu->addChild(createBoolPtrMenuItem("Micro: reverse playback", "", &m->microRev));
 		menu->addChild(createBoolPtrMenuItem("Micro: Break knob = silence (off = traverse)", "", &m->microSilence));
+		menu->addChild(createBoolPtrMenuItem("MICRO knob active in Macro (global varispeed)", "", &m->microInMacro));
 		menu->addChild(createBoolPtrMenuItem("Stereo: unique per channel", "", &m->stereoUnique));
 		menu->addChild(createBoolPtrMenuItem("Gates: momentary (hold) instead of latching", "", &m->gatesMomentary));
 		menu->addChild(createBoolPtrMenuItem("Freeze button: momentary", "", &m->freezeMomentary));
