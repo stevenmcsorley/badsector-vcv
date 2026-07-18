@@ -81,7 +81,7 @@ struct BadSector : Module {
 	int curSub[2] = {0, 0};
 	int samplesSinceTick = 0;
 	int subsActive[2] = {-1, -1};
-	float lastPhase[2] = {0.f, 0.f};
+	int lastWin[2] = {-1, -1};
 	float speed[2] = {1.f, 1.f};
 	float speedTarget[2] = {1.f, 1.f};
 	float speedSlew[2] = {0.f, 0.f};
@@ -213,7 +213,7 @@ struct BadSector : Module {
 		writeHead = 0; readPos[0] = readPos[1] = 0.f; sectionStart = 0;
 		curSub[0] = curSub[1] = 0;
 		samplesSinceTick = 0; subsActive[0] = subsActive[1] = -1;
-		lastPhase[0] = lastPhase[1] = 0.f;
+		lastWin[0] = lastWin[1] = -1;
 		restoreDefaults(); extClock = false; stereoWidth = 0.f;
 		freezeHead = 0; wasFreezeActive = false;
 		wowPh[0] = flutPh[0] = 0.f; wowPh[1] = 0.5f; flutPh[1] = 0.3f;
@@ -606,7 +606,7 @@ struct BadSector : Module {
 			curSub[0] = curSub[1] = 0;
 			readPos[0] = readPos[1] = sectionStart;
 			tapeStop[0] = tapeStop[1] = 0.f;
-			lastPhase[0] = lastPhase[1] = 0.f;
+			lastWin[0] = lastWin[1] = -1;
 			subsActive[0] = subsActive[1] = -1;
 			if (macro) rollMacro(bendN, breakN, repeats, repeatsIdx, bendEnabled, breakEnabled);
 			clkBlink = 1.f;
@@ -647,6 +647,8 @@ struct BadSector : Module {
 			if (subsActive[c] < 1) subsActive[c] = target;
 			int subs = subsActive[c];
 			double subLen = (double) sectionLen / subs;
+			int subLenT = std::max(1, sectionLen / subs);          // wall-clock window
+			int winIdx = (samplesSinceTick - 1) / subLenT;
 
 			if (macro) {
 				// optional departure: MICRO knob transposes the whole mangling
@@ -656,7 +658,9 @@ struct BadSector : Module {
 				// division on exact musical sub-boundaries
 				if (bendSlotN[c] > 1 && sectionLen > 0) {
 					float divPhase = clampf((float) samplesSinceTick / sectionLen, 0.f, 0.999f);
-					uint32_t hsl = bsHash(bendSeed[c], (uint32_t)(divPhase * bendSlotN[c]));
+					uint32_t slotIdx = (subs > 1) ? (uint32_t) winIdx
+					                              : (uint32_t)(divPhase * bendSlotN[c]);
+					uint32_t hsl = bsHash(bendSeed[c], slotIdx);
 					if ((hsl & 0xFF) < 0x66) baseRev = !baseRev;      // reverse flutter
 					if (((hsl >> 8) & 0xFF) < 0x4D) {                 // pitch hop
 						static const float RS[4] = {2.f, 0.5f, 1.5f, 0.75f};
@@ -685,21 +689,25 @@ struct BadSector : Module {
 				want = clamp((int)(breakN * subs), 0, subs - 1);   // Traverse
 
 			double subStart = sectionStart + curSub[c] * subLen;
-			double rel = readPos[c] - subStart;
-			rel -= std::floor(rel / subLen) * subLen;
-			readPos[c] = subStart + rel;
-			subPhase[c] = (float)(rel / subLen);
-			// stutter boundary: latch pending subdivision/traverse changes so
-			// every change lands exactly on the grid
-			bool wrapped = std::fabs(subPhase[c] - lastPhase[c]) > 0.5f;
-			lastPhase[c] = subPhase[c];
-			if (wrapped) {
-				if (target != subs) subsActive[c] = target;
+			// TIME-GRID RETRIGGER: each window restarts the slice on the wall
+			// clock, so stutter transients land on the grid at ANY speed or
+			// direction — content-based wrapping made pitched repeats drift
+			// against the beat (audible immediately on drums)
+			if (winIdx != lastWin[c]) {
+				lastWin[c] = winIdx;
+				if (target != subs) subsActive[c] = target;   // re-grids next window
 				if (want != curSub[c]) {
 					curSub[c] = want;
 					if (!macro) uiTravBlip = 1.f;   // hardware: gold blip on traverse
+					subStart = sectionStart + curSub[c] * subLen;
 				}
+				readPos[c] = revNow[c] ? (subStart + subLen - 1.0) : subStart;
 			}
+			double rel = readPos[c] - subStart;
+			rel -= std::floor(rel / subLen) * subLen;
+			readPos[c] = subStart + rel;
+			// envelope/silence phase follows the TIME window, not the content
+			subPhase[c] = (float)((samplesSinceTick - 1) % subLenT) / (float) subLenT;
 			wet[c] = readBuf(*channelBuf[c], readPos[c]);
 			// Bend tape character: wow/flutter wobble + scattered vinyl pops
 			float spd = speed[c];
