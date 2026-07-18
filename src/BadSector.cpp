@@ -537,8 +537,10 @@ struct BadSector : Module {
 		}
 		bool clockLost = extClock && (sinceClk > extPeriod * 4.f);
 
-		// musical subdivision counts only, up into audio rate
-		int repeatsIdx = clamp((int) std::round(repeatsN * 19.f), 0, 19);
+		// musical subdivision counts only, up into audio rate. The curve keeps
+		// rhythmic counts (1..16) in the first half of the travel and saves
+		// audio-rate for the top stretch — linear indexing hit buzz at noon.
+		int repeatsIdx = clamp((int) std::round(std::pow(repeatsN, 1.7f) * 19.f), 0, 19);
 		int repeats = DB_RPT[repeatsIdx];
 
 		if (tick && freezeTogglePending) {
