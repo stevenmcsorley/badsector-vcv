@@ -86,7 +86,11 @@ make
 make install
 ```
 
-Selector/soft-recall logic is unit-tested: `cd tests && g++ -std=c++11 selector_test.cpp -o sel_test && ./sel_test`.
+Two unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
+`timing_test.cpp` validates the repeat grid — the same `BsGrid.hpp` arithmetic the module
+runs — against exact rational clock fractions: exact window counts, boundaries within one
+sample of the ideal fraction, and safe live Repeat changes, across sample rates and odd
+division lengths. `selector_test.cpp` covers the three-channel knob recall.
 
 ## License
 

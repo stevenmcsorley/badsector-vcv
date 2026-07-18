@@ -9,10 +9,19 @@
 // Layout constants mirror gen_panel.py — keep them in sync.
 #include "plugin.hpp"
 #include "BsSelector.hpp"
+#include "BsGrid.hpp"
 #include <cmath>
 #include <vector>
 
 static inline float clampf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
+
+// external clock: seconds per division for divide/multiply setting d (0..8)
+static inline float bsExtPeriodFor(int d, float extPeriod) {
+	if (d <= 3) return clampf(extPeriod * (16 >> d), 0.001f, 120.f);
+	if (d == 4) return extPeriod;
+	static const int MULT[4] = {2, 3, 4, 8};
+	return clampf(extPeriod / MULT[d - 5], 0.001f, 30.f);
+}
 static inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 
 // musical subdivision counts (powers of two + triplets) — everything that
@@ -475,7 +484,15 @@ struct BadSector : Module {
 
 		// ---- buttons + gates ----
 		if (modeBtn.process(params[MODE_PARAM].getValue() > 0.5f)) macro = !macro;
-		if (clockBtn.process(params[CLOCKBTN_PARAM].getValue() > 0.5f)) extClock = !extClock;
+		if (clockBtn.process(params[CLOCKBTN_PARAM].getValue() > 0.5f)) {
+			extClock = !extClock;
+			// fresh division counters on a source switch: the first external
+			// edge ticks immediately, internal restarts a full period
+			edgeCount = -1; multTick = 0;
+			sinceClk = 0.f; haveClk = false;
+			resetDivisionPending = false;
+			clkPhase = 0.f;
+		}
 		bool freezeButtonHigh = params[FREEZE_PARAM].getValue() > 0.5f;
 		bool freezePress = !freezeButtonWasHigh && freezeButtonHigh;
 		bool freezeRelease = freezeButtonWasHigh && !freezeButtonHigh;
@@ -517,7 +534,21 @@ struct BadSector : Module {
 		}
 		if (extClock) {
 			int d = clamp((int)(timeN * 8.99f), 0, 8);
-			if (d != lastDiv) { lastDiv = d; divBlip = 0.35f; }
+			if (d != lastDiv) {
+				// carry REAL elapsed time into the new ratio's phase so a
+				// mid-beat divide/multiply change can't fire an off-grid tick
+				float pOld = bsExtPeriodFor(lastDiv, extPeriod);
+				float pNew = bsExtPeriodFor(d, extPeriod);
+				if (haveClk && d >= 5) {
+					static const int MULT[4] = {2, 3, 4, 8};
+					int m = MULT[d - 5];
+					multTick = clamp((int)(sinceClk / pNew), 0, m - 1);
+					clkPhase = clampf(sinceClk / pNew - multTick, 0.f, 1.f);
+				} else if (haveClk) {
+					clkPhase = clampf(clkPhase * pOld / pNew, 0.f, 1.f);
+				}
+				lastDiv = d; divBlip = 0.35f;
+			}
 			uiDivIdx = d;
 			sinceClk += dt;
 			bool edge = clockTrig.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 0.4f);
@@ -647,8 +678,13 @@ struct BadSector : Module {
 			if (subsActive[c] < 1) subsActive[c] = target;
 			int subs = subsActive[c];
 			double subLen = (double) sectionLen / subs;
-			int subLenT = std::max(1, sectionLen / subs);          // wall-clock window
-			int winIdx = (samplesSinceTick - 1) / subLenT;
+			int gridT = samplesSinceTick - 1;
+			// EXACT clock-phase grid (BsGrid.hpp): exactly `subs` windows tile
+			// the division with every boundary within one sample of the true
+			// rational fraction. A floored fixed window length drifted early
+			// and fired an extra truncated retrigger at the end of every
+			// non-divisible beat (e.g. 22050 samples / 4 repeats).
+			int winIdx = bsGridIndex(gridT, sectionLen, subs);
 
 			if (macro) {
 				// optional departure: MICRO knob transposes the whole mangling
@@ -688,26 +724,40 @@ struct BadSector : Module {
 			if (!macro && !silenceEnabled)
 				want = clamp((int)(breakN * subs), 0, subs - 1);   // Traverse
 
-			double subStart = sectionStart + curSub[c] * subLen;
 			// TIME-GRID RETRIGGER: each window restarts the slice on the wall
 			// clock, so stutter transients land on the grid at ANY speed or
 			// direction — content-based wrapping made pitched repeats drift
 			// against the beat (audible immediately on drums)
 			if (winIdx != lastWin[c]) {
+				if (target != subs) {
+					// live Repeat change: switch grids AT this boundary and
+					// recompute the window on the NEW grid, so the old and new
+					// grids can never fire back-to-back one-sample retriggers
+					subsActive[c] = target;
+					subs = target;
+					subLen = (double) sectionLen / subs;
+					winIdx = bsGridIndex(gridT, sectionLen, subs);
+					if (curSub[c] >= subs) curSub[c] = subs - 1;
+					want = (!macro && !silenceEnabled)
+						? clamp((int)(breakN * subs), 0, subs - 1)
+						: std::min(want, subs - 1);
+				}
 				lastWin[c] = winIdx;
-				if (target != subs) subsActive[c] = target;   // re-grids next window
 				if (want != curSub[c]) {
 					curSub[c] = want;
 					if (!macro) uiTravBlip = 1.f;   // hardware: gold blip on traverse
-					subStart = sectionStart + curSub[c] * subLen;
 				}
-				readPos[c] = revNow[c] ? (subStart + subLen - 1.0) : subStart;
+				double ss = sectionStart + curSub[c] * subLen;
+				readPos[c] = revNow[c] ? (ss + subLen - 1.0) : ss;
 			}
+			double subStart = sectionStart + curSub[c] * subLen;
 			double rel = readPos[c] - subStart;
 			rel -= std::floor(rel / subLen) * subLen;
 			readPos[c] = subStart + rel;
-			// envelope/silence phase follows the TIME window, not the content
-			subPhase[c] = (float)((samplesSinceTick - 1) % subLenT) / (float) subLenT;
+			// envelope/silence phase follows the exact TIME window
+			int ws = bsGridStart(winIdx, sectionLen, subs);
+			int wl = std::max(1, bsGridStart(winIdx + 1, sectionLen, subs) - ws);
+			subPhase[c] = clampf((float)(gridT - ws) / (float) wl, 0.f, 1.f);
 			wet[c] = readBuf(*channelBuf[c], readPos[c]);
 			// Bend tape character: wow/flutter wobble + scattered vinyl pops
 			float spd = speed[c];
