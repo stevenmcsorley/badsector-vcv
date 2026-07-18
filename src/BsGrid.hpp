@@ -10,10 +10,36 @@
 
 inline int bsGridIndex(int t, int len, int subs) {
 	if (len < 1 || subs < 1 || t < 0) return 0;
+	// A late/jittered clock edge can leave playback running beyond the
+	// acquired division. Hold the final window instead of inventing windows
+	// `subs`, `subs + 1`, ... while waiting for the next authoritative tick.
+	if (t >= len) return subs - 1;
 	return (int)(((int64_t) t * subs) / len);
 }
 
 inline int bsGridStart(int k, int len, int subs) {
 	if (len < 1 || subs < 1 || k < 0) return 0;
+	if (k > subs) k = subs;
 	return (int)(((int64_t) k * len + subs - 1) / subs);
+}
+
+// Advance the live repeat grid. A pending repeat-count change is applied only
+// when the currently active grid reaches a boundary; the index is then
+// recomputed on the new grid in the same sample. Keeping this state transition
+// here means the DSP and the regression tests exercise identical logic.
+inline bool bsGridAdvance(int t, int len, int targetSubs,
+		int& activeSubs, int& lastWin, int& winIdx) {
+	if (targetSubs < 1) targetSubs = 1;
+	if (activeSubs < 1) activeSubs = targetSubs;
+
+	winIdx = bsGridIndex(t, len, activeSubs);
+	if (winIdx == lastWin)
+		return false;
+
+	if (targetSubs != activeSubs) {
+		activeSubs = targetSubs;
+		winIdx = bsGridIndex(t, len, activeSubs);
+	}
+	lastWin = winIdx;
+	return true;
 }

@@ -1,10 +1,7 @@
 #pragma once
-#include <cmath>
-
 // Three independently-stored values edited through one physical knob.
-// A selector button cycles the active channel; the knob uses soft
-// takeover (pickup): after switching, the knob must sweep across the
-// stored value before it engages, so switching never causes a jump.
+// Bad Sector uses a virtual Rack knob, so a selector press can move the knob
+// pointer to the recalled value and edit it immediately.
 struct BsSelector {
 	float vals[3] = {0.f, 0.f, 0.f};
 	int sel = 0;
@@ -15,32 +12,30 @@ struct BsSelector {
 		vals[0] = a; vals[1] = b; vals[2] = c;
 		sel = 0;
 		caught = true;
+		lastKnob = vals[0];
 	}
 
-	// selector button pressed: next channel, disengage the knob
-	void advance(float knob) {
+	// Store the channel being left, select the next one, and return the value
+	// that Rack's virtual knob should display.
+	float advanceSnap(float knob) {
+		vals[sel] = knob;
 		sel = (sel + 1) % 3;
-		caught = false;
-		lastKnob = knob;
+		caught = true;
+		lastKnob = vals[sel];
+		return lastKnob;
 	}
 
-	// after a patch/preset load the knob may sit anywhere: never jump
-	void detach(float knob) {
-		caught = false;
-		lastKnob = knob;
+	// Return the selected stored value after a patch or preset load.
+	float selectedSnap() {
+		caught = true;
+		lastKnob = vals[sel];
+		return lastKnob;
 	}
 
-	// call every sample with the physical knob position; returns the
-	// active channel's value
+	// Call every sample with the virtual knob position.
 	float track(float knob) {
-		if (!caught) {
-			bool crossedUp = lastKnob <= vals[sel] && knob >= vals[sel];
-			bool crossedDown = lastKnob >= vals[sel] && knob <= vals[sel];
-			if (crossedUp || crossedDown || std::fabs(knob - vals[sel]) < 0.005f)
-				caught = true;
-		}
-		if (caught)
-			vals[sel] = knob;
+		caught = true;
+		vals[sel] = knob;
 		lastKnob = knob;
 		return vals[sel];
 	}

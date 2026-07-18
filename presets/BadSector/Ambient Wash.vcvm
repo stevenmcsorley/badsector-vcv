@@ -63,7 +63,7 @@
     "ledBrightness": 1.0,
     "gatesMomentary": false,
     "freezeMomentary": false,
-    "originalCorruptOnly": true,
+    "originalCorruptOnly": false,
     "microInMacro": false,
     "damageVals": [
       0.28,

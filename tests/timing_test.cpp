@@ -5,7 +5,8 @@
 //      (44.1k/48k/96k beats, odd/jittered lengths) -> exactly `subs`
 //      retriggers, each within one sample of the ideal fraction k*len/subs
 //   2. the named failure cases of the old floored-window model
-//   3. live mid-division Repeat changes (deterministic + 300 randomized):
+//   3. late clock edges and live mid-division Repeat changes (deterministic
+//      + 300 randomized):
 //      no back-to-back retriggers, every retrigger on the grid that fired it
 //   4. teeth: the floored-window model and the no-re-grid change scheme and
 //      the content-wrap model all provably FAIL these assertions
@@ -87,6 +88,42 @@ int main() {
 		}
 		CHECK(retrigs == 3, "23999/3: %d retriggers (want 3)", retrigs);
 	}
+	{
+		// A late next clock edge must hold the last window. Previously the raw
+		// floor(t*subs/len) result invented windows 4,5,... after the division.
+		int len = 24000, subs = 4, lastWin = -1, retrigs = 0;
+		for (int t = 0; t < len + 12000; t++) {
+			int w = bsGridIndex(t, len, subs);
+			CHECK(w >= 0 && w < subs, "late edge: invalid window %d at %d", w, t);
+			if (w != lastWin) { lastWin = w; retrigs++; }
+		}
+		CHECK(retrigs == subs, "late edge: %d retriggers (want %d)", retrigs, subs);
+	}
+	{
+		// Bend's rhythmic gesture has its own 2/3/4/6/8-slot grid. Repeat must
+		// not silently replace that count (the old DSP made a 2-slot gesture
+		// change 32 times when Repeat was 32).
+		const int bendSlots[5] = {2, 3, 4, 6, 8};
+		int len = 23999;
+		for (int bi = 0; bi < 5; ++bi) {
+			for (int ri = 0; ri < 20; ++ri) {
+				int last = -1, changes = 0;
+				for (int t = 0; t < len; ++t) {
+					int slot = bsGridIndex(t, len, bendSlots[bi]);
+					if (slot != last) { last = slot; changes++; }
+				}
+				CHECK(changes == bendSlots[bi],
+				      "Bend slots=%d Repeat=%d: %d decisions",
+				      bendSlots[bi], RPT[ri], changes);
+			}
+		}
+		int oldChanges = 0, last = -1;
+		for (int t = 0; t < len; ++t) {
+			int oldSlot = bsGridIndex(t, len, 32); // old Repeat-derived slot index
+			if (oldSlot != last) { last = oldSlot; oldChanges++; }
+		}
+		CHECK(oldChanges == 32, "old Repeat-derived Bend model lost its test teeth");
+	}
 
 	// ---- 3. live Repeat change mid-division (module's re-grid logic) ----
 	{
@@ -98,16 +135,14 @@ int main() {
 		int subsActive = 2, lastWin = -1, nT = 0, trail[8] = {0};
 		for (int t = 0; t < len; t++) {
 			int target = (t >= changeAt) ? 4 : 2;
-			int subs = subsActive;
-			int w = bsGridIndex(t, len, subs);
-			if (w != lastWin) {
-				if (target != subs) {
-					subsActive = target;
-					w = bsGridIndex(t, len, target);
-				}
-				lastWin = w;
+			int w = 0;
+			if (bsGridAdvance(t, len, target, subsActive, lastWin, w)) {
 				if (nT < 8) trail[nT] = t;
 				nT++;
+				if (t == 12000)
+					CHECK(subsActive == 4 && w == 2,
+					      "2->4/24000: re-grid ordering was subs=%d win=%d, want 4/2",
+					      subsActive, w);
 			}
 		}
 		CHECK(nT == 3 && trail[0] == 0 && trail[1] == 12000 && trail[2] == 18000,
@@ -125,15 +160,9 @@ int main() {
 		int lastWin = -1, prevT = -10;
 		for (int t = 0; t < len; t++) {
 			int target = (t >= changeAt) ? newTarget : subsActive;
-			int subs = subsActive;
-			int w = bsGridIndex(t, len, subs);
-			if (w != lastWin) {
-				int firingSubs = subs;         // the grid whose boundary fired
-				if (target != subs) {
-					subsActive = target;
-					w = bsGridIndex(t, len, target);
-				}
-				lastWin = w;
+			int firingSubs = subsActive;
+			int w = 0;
+			if (bsGridAdvance(t, len, target, subsActive, lastWin, w)) {
 				CHECK(t == bsGridStart(bsGridIndex(t, len, firingSubs), len, firingSubs),
 				      "trial %d: retrigger %d not on its firing grid (subs %d)",
 				      trial, t, firingSubs);
@@ -189,7 +218,7 @@ int main() {
 	}
 
 	if (fails == 0)
-		printf("ALL PASS: exact rational grid — exact window counts, sub-sample "
+		printf("ALL PASS: exact rational grid — exact window counts, one-sample "
 		       "boundaries, safe live Repeat changes; all three broken models "
 		       "provably fail the same assertions\n");
 	else

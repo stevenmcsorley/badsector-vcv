@@ -8,9 +8,10 @@
 
 Bad Sector records continuously into a 64-second ring and, on every clock division,
 *acquires* the division that just finished — then mangles that beat-aligned block with
-tape failures, digital breakage and media corruption. Because every division hard-resyncs
-the playhead, **everything stays locked to the clock no matter how slow, pitched or
-mangled it gets** — a simple melody comes out transformed but never out of time.
+tape failures, digital breakage and media corruption. Every division and Repeat window
+uses the same exact rational clock grid, so **playback stays locked no matter how slow,
+pitched, reversed or traversed it gets** — a simple melody comes out transformed without
+the stutter transients drifting away from the beat.
 (The wet path is therefore always one division behind the input; that inherent clocked
 delay is the price of the guarantee, and disappears with loop-based material.)
 
@@ -29,14 +30,19 @@ delay is the price of the guarantee, and disappears with loop-based material.)
   channels snaps the knob to that channel's stored value. The dot above the button shows
   the selected channel's level.
   - **Bend** — tape failures, rolled fresh every division: varispeed jumps in octaves and
-    fifths, reverses, beat-length tape stops, wow/flutter wobble and vinyl crackle that
-    scale with the amount, and gliding speed slews at the top of the range.
+    two-octave ranges, reverses, beat-length tape stops, subtle wow/flutter and gliding
+    speed slews at the top of the range. Higher settings can layer a held 2/3/4/6/8-slot
+    reverse-and-pitch gesture over the Repeat grid; both grids use exact beat fractions.
+    No synthetic crackle is added to Bend; low windowing can still expose intentional
+    hard-edge clicks at slice changes.
   - **Break** — digital failures: subsection jumps, extra repeats (always from the musical
     table), and up to 90 % silence per repeat at the top.
-  - **Corrupt** — end-of-chain media damage: **Decimate** (variable bit-crush +
-    downsample), **Dropout** (random gaps — fewer/longer left, more/shorter right),
-    **Destroy** (soft saturation into devastation). Two extra effects (DJ Filter, Vinyl
-    Sim) can be enabled in the context menu. The CRPT gate steps the effect.
+  - **Corrupt** — end-of-chain media damage: **Decimate** (fixed shuffled bit-crush,
+    downsample, hiss and drive variations), **Dropout** (the left side of the *knob* gives
+    fewer/longer random gaps; the right side gives more/shorter gaps), **Destroy** (soft
+    saturation into devastation), **DJ Filter** (low-pass below noon, neutral at noon,
+    high-pass above), and **Vinyl Sim** (dust, pops and colouring). The CRPT gate steps
+    the effect; a context option limits the list to the original three.
 - **CV AMT** — the same three-channel pattern for **bipolar** CV attenuverters
   (centre = no modulation) over the Bend/Break/Corrupt CV inputs.
 - **MICRO** — manual playback speed, ±3 octaves. Active in Micro mode (and optionally as
@@ -47,7 +53,9 @@ delay is the price of the guarantee, and disappears with loop-based material.)
 ## Modes
 
 **Macro** — the machine drives: Bend and Break roll new manipulations every clock
-division, per-channel when *Stereo: unique* is enabled.
+division, per-channel when *Stereo: unique* is enabled. Bend and Break start disabled to
+match Data Bender's restore defaults; enable them with their latching gates or the two
+context-menu switches. Factory presets store their intended enabled states.
 
 **Micro** — you drive: MICRO sets the speed (BEND CV tracks 1 V/oct), the BEND gate
 toggles reverse, and the Break channel becomes **Traverse** (select the looping
@@ -55,6 +63,18 @@ subsection) or **Silence** (duty cycle, toggled by the BREAK gate). The display 
 speed with the hardware-style colour code — cyan on an exact octave, green reversed, gold
 reversed-on-octave — and blips gold when the traverse subsection changes. Selector
 channels that are inactive in the current mode dim to 25 %.
+
+## Timing contract
+
+- Internal Time and all nine external /16…×8 settings acquire on clock boundaries.
+- Repeat, Break-added repeats, Traverse changes, synchronized silence, Bend rolls,
+  reverse-flutter slots, tape stops, Freeze latching and Reset all resolve from that clock
+  grid. Pitch and direction change the content inside a window, never its next retrigger.
+- If an external clock vanishes, the learned phase keeps running without a deliberately
+  late first free-run beat; a returning edge re-anchors the grid without a near-duplicate
+  trigger. The clock LED goes dim after four missing input beats.
+- Corrupt is intentionally post-buffer media damage. In particular, Corrupt **Dropout**
+  remains random/free-running like the hardware; use Break for synchronized dropout.
 
 ## The display
 
@@ -86,11 +106,13 @@ make
 make install
 ```
 
-Two unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
+Three unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
 `timing_test.cpp` validates the repeat grid — the same `BsGrid.hpp` arithmetic the module
 runs — against exact rational clock fractions: exact window counts, boundaries within one
 sample of the ideal fraction, and safe live Repeat changes, across sample rates and odd
-division lengths. `selector_test.cpp` covers the three-channel knob recall.
+division lengths. `clock_test.cpp` exercises every external division/multiplier, source
+loss, late edges, live ratio changes and Reset against the production `BsClock.hpp`.
+`selector_test.cpp` covers the three-channel virtual-knob snap recall used by the module.
 
 ## License
 

@@ -3,25 +3,18 @@
 // v2 panel architecture: six large controls (BUFFER, REPEAT, MIX, MICRO,
 // DAMAGE, CV AMT). DAMAGE is one knob editing three independently stored
 // values (Bend / Break / Corrupt) selected by an illuminated square button
-// with soft takeover; CV AMT is the same pattern for three bipolar CV
-// attenuverters. Micro and Clock modes, and all DSP, are unchanged from v1.
+// by snapping the virtual knob to the selected value; CV AMT is the same
+// pattern for three bipolar CV attenuverters.
 //
 // Layout constants mirror gen_panel.py — keep them in sync.
 #include "plugin.hpp"
 #include "BsSelector.hpp"
 #include "BsGrid.hpp"
+#include "BsClock.hpp"
 #include <cmath>
 #include <vector>
 
 static inline float clampf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
-
-// external clock: seconds per division for divide/multiply setting d (0..8)
-static inline float bsExtPeriodFor(int d, float extPeriod) {
-	if (d <= 3) return clampf(extPeriod * (16 >> d), 0.001f, 120.f);
-	if (d == 4) return extPeriod;
-	static const int MULT[4] = {2, 3, 4, 8};
-	return clampf(extPeriod / MULT[d - 5], 0.001f, 30.f);
-}
 static inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
 
 // musical subdivision counts (powers of two + triplets) — everything that
@@ -104,17 +97,17 @@ struct BadSector : Module {
 	int freezeHead = 0;
 	bool wasFreezeActive = false;
 	bool macro = true;
-	bool frozen = false, bendOn = true, breakOn = true;
+	bool frozen = false, bendOn = false, breakOn = false;
 	bool microRev = false;
 	bool microSilence = false;   // Traverse default
 	int corruptSel = 0;
 	float windowing = 0.02f;
 	float stereoWidth = 0.f;
-	bool stereoUnique = false;   // default/restore = Shared
+	bool stereoUnique = true;    // Data Bender default/restore = Unique
 	float ledBrightness = 1.f;
 	bool gatesMomentary = false;
 	bool freezeMomentary = false;
-	bool originalCorruptOnly = true;
+	bool originalCorruptOnly = false;  // current firmware default: all 5 effects
 	bool microInMacro = false;   // MICRO knob as global varispeed under the Macro automation
 	bool freezeMixWet = false;
 	bool freezeTogglePending = false;
@@ -123,10 +116,8 @@ struct BadSector : Module {
 
 	// clock
 	bool extClock = false;
-	float clkPhase = 0.f, extPeriod = 0.5f, sinceClk = 0.f;
-	bool haveClk = false;
-	int lastDiv = 4;
-	int edgeCount = 0, multTick = 0;
+	float internalPhase = 0.f;
+	BsExternalClock externalClock;
 	float divBlip = 0.f, clkBlink = 0.f;
 
 	// macro per-clock decisions (per channel when stereoUnique)
@@ -210,12 +201,24 @@ struct BadSector : Module {
 	void onSampleRateChange(const SampleRateChangeEvent& e) override {
 		if ((int)(e.sampleRate * MAX_SECONDS) != bufLen) alloc(e.sampleRate);
 	}
+	void resetAutomation() {
+		for (int c = 0; c < 2; c++) {
+			macroSpeed[c] = speed[c] = speedTarget[c] = 1.f;
+			macroRev[c] = revNow[c] = false;
+			macroSilence[c] = tapeStop[c] = speedSlew[c] = 0.f;
+			breakSubs[c] = 0;
+			bendSlotN[c] = 1;
+		}
+	}
 	void restoreDefaults() {
-		windowing = 0.02f; bendOn = true; breakOn = true; frozen = false;
-		macro = true; stereoUnique = false; corruptSel = 0;
-		microRev = false; microSilence = false;
+		// Match the hardware restore list: 2% windowing, Bend/Break/Freeze
+		// off, Macro, Unique stereo and latching gate/freeze behaviour.
+		windowing = 0.02f; bendOn = false; breakOn = false; frozen = false;
+		macro = true; stereoUnique = true;
 		gatesMomentary = false; freezeMomentary = false;
-		freezeTogglePending = false; resetDivisionPending = false;
+		freezeMixWet = false; freezeTogglePending = false;
+		resetDivisionPending = false;
+		resetAutomation();
 	}
 	void onReset() override {
 		std::fill(bufL.begin(), bufL.end(), 0.f); std::fill(bufR.begin(), bufR.end(), 0.f);
@@ -224,12 +227,17 @@ struct BadSector : Module {
 		samplesSinceTick = 0; subsActive[0] = subsActive[1] = -1;
 		lastWin[0] = lastWin[1] = -1;
 		restoreDefaults(); extClock = false; stereoWidth = 0.f;
+		internalPhase = 0.f; externalClock.reset();
 		freezeHead = 0; wasFreezeActive = false;
 		wowPh[0] = flutPh[0] = 0.f; wowPh[1] = 0.5f; flutPh[1] = 0.3f;
 		ledBrightness = 1.f;
-		originalCorruptOnly = true; freezeButtonWasHigh = false;
+		microRev = false; microSilence = false; corruptSel = 0;
+		originalCorruptOnly = false; microInMacro = false;
+		freezeButtonWasHigh = false;
 		damage.reset(0.f, 0.f, 0.f);
 		cvAmt.reset(0.75f, 0.75f, 0.75f);
+		decHoldL = decHoldR = 0.f; decCount = 0;
+		dropEnv = 1.f; dropTimer = 0;
 		djL.reset(); djR.reset();
 		vinylLpL = vinylLpR = 0.f;
 		dcPrevInL = dcPrevInR = dcPrevOutL = dcPrevOutR = 0.f;
@@ -292,12 +300,8 @@ struct BadSector : Module {
 		if (json_t* j = json_object_get(r, "cvAmtSel")) cvAmt.sel = clamp((int) json_integer_value(j), 0, 2);
 		if (originalCorruptOnly && corruptSel >= 3) corruptSel = 0;
 		// snap the knobs to the restored channels' stored values
-		damage.caught = true;
-		damage.lastKnob = damage.vals[damage.sel];
-		params[DAMAGE_PARAM].setValue(damage.vals[damage.sel]);
-		cvAmt.caught = true;
-		cvAmt.lastKnob = cvAmt.vals[cvAmt.sel];
-		params[CVAMT_PARAM].setValue(cvAmt.vals[cvAmt.sel]);
+		params[DAMAGE_PARAM].setValue(damage.selectedSnap());
+		params[CVAMT_PARAM].setValue(cvAmt.selectedSnap());
 	}
 
 	float readBuf(const std::vector<float>& b, double pos) {
@@ -310,13 +314,28 @@ struct BadSector : Module {
 	void applyCorrupt(int effect, float amt, float& l, float& r, float sr) {
 		if (amt <= 0.001f) return;
 		switch (effect) {
-			case 0: {  // Decimate — variable bit-crushing and downsampling
-				int hold = 1 + (int)(amt * amt * 54.f);
-				float bits = 16.f - amt * 14.f;
+			case 0: {  // Decimate — fixed bit/downsample variations in shuffled order
+				// The hardware control is deliberately not a linear crusher. Each
+				// region recalls a fixed failure mode; the ordering alternates bit
+				// depth, sample hold, hiss and drive so sweeping it finds distinct
+				// broken-device colours rather than one steadily worsening effect.
+				struct Variation { float bits; int hold; float hiss; float drive; };
+				static const Variation V[16] = {
+					{15.f,  1, 0.0008f, 1.0f}, {10.f,  1, 0.0000f, 1.0f},
+					{14.f,  4, 0.0015f, 1.0f}, { 7.f,  2, 0.0005f, 1.1f},
+					{12.f,  8, 0.0000f, 1.0f}, { 5.f,  1, 0.0025f, 1.3f},
+					{ 9.f,  5, 0.0040f, 1.0f}, {13.f, 16, 0.0010f, 1.1f},
+					{ 6.f,  4, 0.0070f, 1.5f}, {11.f, 24, 0.0030f, 1.1f},
+					{ 4.f,  2, 0.0100f, 1.8f}, { 8.f, 32, 0.0060f, 1.4f},
+					{ 3.f,  6, 0.0150f, 2.5f}, { 5.f, 48, 0.0100f, 2.0f},
+					{ 2.f, 16, 0.0200f, 3.5f}, { 2.f, 55, 0.0300f, 5.0f}
+				};
+				const Variation& v = V[clamp((int)(amt * 16.f), 0, 15)];
+				int hold = v.hold;
 				if (--decCount <= 0) { decCount = hold; decHoldL = l; decHoldR = r; }
-				float q = std::pow(2.f, bits - 1.f);
-				l = std::round(decHoldL * q) / q;
-				r = std::round(decHoldR * q) / q;
+				float q = std::pow(2.f, v.bits - 1.f);
+				l = std::round((decHoldL * v.drive + rng.bip() * v.hiss) * q) / q;
+				r = std::round((decHoldR * v.drive + rng.bip() * v.hiss) * q) / q;
 			} break;
 			case 1: {  // Dropout — left: fewer but longer; right: more but shorter
 				if (--dropTimer <= 0) {
@@ -338,7 +357,7 @@ struct BadSector : Module {
 					r = clampf(r * d, -1.f, 1.f);
 				}
 			} break;
-			case 3: {  // DJ Filter (extra) — LP below noon, HP above
+			case 3: {  // DJ Filter — LP below noon, HP above
 				float lp, hp, dummy;
 				if (amt < 0.48f) {
 					float t = amt / 0.48f;
@@ -354,7 +373,7 @@ struct BadSector : Module {
 					djR.process(r, g, 0.8f, dummy, hp); r = hp;
 				}
 			} break;
-			default: {  // Vinyl Sim (extra) — dust, pops and colouring
+			default: {  // Vinyl Sim — dust, pops and colouring
 				if (rng.f() < amt * 0.0008f) {
 					float c = rng.bip() * amt * 0.8f;
 					l += c; r += c * 0.7f;
@@ -383,14 +402,15 @@ struct BadSector : Module {
 			int z = (int) std::ceil(bendAmt * 6.f);
 			float top = clampf(bendAmt * 6.f - (z - 1), 0.f, 1.f);
 			auto za = [&](int k) { return (k < z) ? 1.f : (k == z ? top : 0.f); };
-			// pitch changes come in octaves and fifths, so it stays musical
-			static const float R2[4] = {2.f, 0.5f, 1.5f, 0.75f};
-			static const float R3[4] = {4.f, 0.25f, 3.f, 1.f / 3.f};
+			// Manual zones are Octaves then 2 Octaves. Select one range rather
+			// than multiplying both zones into accidental three-octave jumps.
 			for (int c = 0; c < nCh; c++) {
 				float sp = 1.f; bool rv = false;
 				if (z >= 1 && rng.f() < za(1) * 0.35f) rv = true;
-				if (z >= 2 && rng.f() < za(2) * 0.5f) sp *= R2[rng.u32() & 3];
-				if (z >= 3 && rng.f() < za(3) * 0.4f) sp *= R3[rng.u32() & 3];
+				if (z >= 3 && rng.f() < za(3) * 0.4f)
+					sp = (rng.u32() & 1) ? 4.f : 0.25f;
+				else if (z >= 2 && rng.f() < za(2) * 0.5f)
+					sp = (rng.u32() & 1) ? 2.f : 0.5f;
 				if (z >= 4 && rng.f() < za(4) * 0.3f) tapeStop[c] = 1.f;
 				// zone 3+: rhythmic flutter patterns — the division splits into
 				// musical slots, each with its own reverse/pitch decision
@@ -450,18 +470,12 @@ struct BadSector : Module {
 		// ---- shared editors: selector buttons recall the stored value (the
 		// knob pointer snaps to show it), then the knob edits directly ----
 		if (dmgSelBtn.process(params[DMGSEL_PARAM].getValue() > 0.5f)) {
-			damage.vals[damage.sel] = params[DAMAGE_PARAM].getValue();
-			damage.sel = (damage.sel + 1) % 3;
-			damage.caught = true;
-			damage.lastKnob = damage.vals[damage.sel];
-			params[DAMAGE_PARAM].setValue(damage.vals[damage.sel]);
+			params[DAMAGE_PARAM].setValue(
+				damage.advanceSnap(params[DAMAGE_PARAM].getValue()));
 		}
 		if (cvSelBtn.process(params[CVSEL_PARAM].getValue() > 0.5f)) {
-			cvAmt.vals[cvAmt.sel] = params[CVAMT_PARAM].getValue();
-			cvAmt.sel = (cvAmt.sel + 1) % 3;
-			cvAmt.caught = true;
-			cvAmt.lastKnob = cvAmt.vals[cvAmt.sel];
-			params[CVAMT_PARAM].setValue(cvAmt.vals[cvAmt.sel]);
+			params[CVAMT_PARAM].setValue(
+				cvAmt.advanceSnap(params[CVAMT_PARAM].getValue()));
 		}
 		damage.track(params[DAMAGE_PARAM].getValue());
 		cvAmt.track(params[CVAMT_PARAM].getValue());
@@ -486,12 +500,11 @@ struct BadSector : Module {
 		if (modeBtn.process(params[MODE_PARAM].getValue() > 0.5f)) macro = !macro;
 		if (clockBtn.process(params[CLOCKBTN_PARAM].getValue() > 0.5f)) {
 			extClock = !extClock;
-			// fresh division counters on a source switch: the first external
-			// edge ticks immediately, internal restarts a full period
-			edgeCount = -1; multTick = 0;
-			sinceClk = 0.f; haveClk = false;
+			// Fresh state on a source switch: the first external edge is an
+			// authoritative downbeat; internal restarts a full period.
+			externalClock.reset();
+			internalPhase = 0.f;
 			resetDivisionPending = false;
-			clkPhase = 0.f;
 		}
 		bool freezeButtonHigh = params[FREEZE_PARAM].getValue() > 0.5f;
 		bool freezePress = !freezeButtonWasHigh && freezeButtonHigh;
@@ -521,6 +534,7 @@ struct BadSector : Module {
 		bool breakEnabled = breakOn || (gatesMomentary && breakGateHigh);
 		bool reverseEnabled = microRev || (gatesMomentary && bendGateHigh);
 		bool silenceEnabled = microSilence || (gatesMomentary && breakGateHigh);
+		if (originalCorruptOnly && corruptSel >= 3) corruptSel = 0;
 		int corruptEffect = corruptSel;
 		if (gatesMomentary && corruptGateHigh)
 			corruptEffect = (corruptEffect + 1) % (originalCorruptOnly ? 3 : 5);
@@ -528,73 +542,30 @@ struct BadSector : Module {
 		// ---- clock ----
 		bool tick = false;
 		float period;
+		bool firstExternalEdge = false;
 		if (resetTrig.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 0.4f)) {
 			if (extClock) resetDivisionPending = true;
-			else { clkPhase = 0.f; tick = true; }
+			else { internalPhase = 0.f; tick = true; }
 		}
+		bool clockLost = false;
 		if (extClock) {
 			int d = clamp((int)(timeN * 8.99f), 0, 8);
-			if (d != lastDiv) {
-				// carry REAL elapsed time into the new ratio's phase so a
-				// mid-beat divide/multiply change can't fire an off-grid tick
-				float pOld = bsExtPeriodFor(lastDiv, extPeriod);
-				float pNew = bsExtPeriodFor(d, extPeriod);
-				if (haveClk && d >= 5) {
-					static const int MULT[4] = {2, 3, 4, 8};
-					int m = MULT[d - 5];
-					multTick = clamp((int)(sinceClk / pNew), 0, m - 1);
-					clkPhase = clampf(sinceClk / pNew - multTick, 0.f, 1.f);
-				} else if (haveClk) {
-					clkPhase = clampf(clkPhase * pOld / pNew, 0.f, 1.f);
-				}
-				lastDiv = d; divBlip = 0.35f;
-			}
 			uiDivIdx = d;
-			sinceClk += dt;
 			bool edge = clockTrig.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 0.4f);
 			bool resetOnEdge = edge && resetDivisionPending;
-			if (edge) {
-				if (haveClk) extPeriod = clampf(sinceClk, 0.001f, 30.f);
-				haveClk = true; sinceClk = 0.f;
-				if (resetOnEdge) { edgeCount = 0; resetDivisionPending = false; }
-				else edgeCount++;
-			}
-			// hard-lock to edges while the clock is present; free-run on the
-			// measured period once edges stop so audio never dies
-			bool lost = sinceClk > extPeriod * 1.1f;
-			if (d <= 3) {                       // divisions /16 /8 /4 /2
-				int n = 16 >> d;
-				period = clampf(extPeriod * n, 0.001f, 120.f);
-				clkPhase += dt / period;
-				if (edge && (resetOnEdge || (edgeCount % n) == 0)) { tick = true; clkPhase = 0.f; }
-				else if (lost && clkPhase >= 1.f) { clkPhase -= std::floor(clkPhase); tick = true; }
-			} else if (d == 4) {                // x1
-				period = extPeriod;
-				clkPhase += dt / period;
-				if (edge) { tick = true; clkPhase = 0.f; }
-				else if (lost && clkPhase >= 1.f) { clkPhase -= std::floor(clkPhase); tick = true; }
-			} else {                            // multiplications x2 x3 x4 x8
-				static const int MULT[4] = {2, 3, 4, 8};
-				int m = MULT[d - 5];
-				period = clampf(extPeriod / m, 0.001f, 30.f);
-				if (edge) { clkPhase = 0.f; multTick = 0; tick = true; }
-				else {
-					clkPhase += dt / period;
-					if (clkPhase >= 1.f && (multTick < m - 1 || lost)) {
-						clkPhase -= 1.f;
-						if (multTick < 1000000) multTick++;
-						tick = true;
-					}
-				}
-			}
+			BsClockResult cr = externalClock.process(dt, d, edge, resetOnEdge);
+			period = cr.period;
+			tick = cr.tick;
+			clockLost = cr.clockLost;
+			firstExternalEdge = cr.firstEdge;
+			if (cr.divisionChanged) divBlip = 0.35f;
+			if (cr.consumedReset) resetDivisionPending = false;
 		} else {
 			period = 16.f * std::pow(1.f / 1280.f, timeN);
-			clkPhase += dt / period;
-			if (clkPhase >= 1.f) { clkPhase -= std::floor(clkPhase); tick = true; }
-			haveClk = false;
+			internalPhase += dt / period;
+			if (internalPhase >= 1.f) { internalPhase -= std::floor(internalPhase); tick = true; }
 			uiDivIdx = -1;
 		}
-		bool clockLost = extClock && (sinceClk > extPeriod * 4.f);
 
 		// musical subdivision counts only, up into audio rate. The curve keeps
 		// rhythmic counts (1..16) in the first half of the travel and saves
@@ -620,7 +591,7 @@ struct BadSector : Module {
 			// each tick acquires the just-completed division; that is what
 			// gets mangled during this division (always beat-aligned audio)
 			if (!freezeActive) {
-				sectionLen = (samplesSinceTick > 32 && samplesSinceTick < bufLen)
+				sectionLen = (!firstExternalEdge && samplesSinceTick > 32 && samplesSinceTick < bufLen)
 					? samplesSinceTick
 					: clamp((int)(period * sr), 32, bufLen - 1);
 				sectionStart = writeHead - sectionLen;
@@ -642,7 +613,9 @@ struct BadSector : Module {
 			if (macro) rollMacro(bendN, breakN, repeats, repeatsIdx, bendEnabled, breakEnabled);
 			clkBlink = 1.f;
 		}
-		samplesSinceTick++;
+		// Saturation also makes the first external edge after a long wait use
+		// the estimated clock period instead of an overflowed sample count.
+		samplesSinceTick = std::min(samplesSinceTick + 1, bufLen);
 
 		// ---- write (background, always, unless frozen) ----
 		float rawInL = inputs[IN_L_INPUT].getVoltage() * 0.2f;
@@ -675,16 +648,17 @@ struct BadSector : Module {
 		for (int c = 0; c < 2; c++) {
 			int target = std::max(1, macro && breakSubs[c] > 0 ? breakSubs[c] : repeats);
 			target = clamp(target, 1, std::max(1, sectionLen / 4));
-			if (subsActive[c] < 1) subsActive[c] = target;
-			int subs = subsActive[c];
-			double subLen = (double) sectionLen / subs;
 			int gridT = samplesSinceTick - 1;
-			// EXACT clock-phase grid (BsGrid.hpp): exactly `subs` windows tile
-			// the division with every boundary within one sample of the true
-			// rational fraction. A floored fixed window length drifted early
-			// and fired an extra truncated retrigger at the end of every
-			// non-divisible beat (e.g. 22050 samples / 4 repeats).
-			int winIdx = bsGridIndex(gridT, sectionLen, subs);
+			int winIdx = 0;
+			// Resolve a pending Repeat change before deriving Bend's pattern,
+			// direction, speed, traverse position or envelope. The previous
+			// order could start a new grid window using the old grid's reverse
+			// decision, then flip direction one sample later.
+			bool retrigger = bsGridAdvance(gridT, sectionLen, target,
+				subsActive[c], lastWin[c], winIdx);
+			int subs = subsActive[c];
+			curSub[c] = clamp(curSub[c], 0, subs - 1);
+			double subLen = (double) sectionLen / subs;
 
 			if (macro) {
 				// optional departure: MICRO knob transposes the whole mangling
@@ -693,14 +667,16 @@ struct BadSector : Module {
 				// rhythmic flutter: the same pattern repeats across the whole
 				// division on exact musical sub-boundaries
 				if (bendSlotN[c] > 1 && sectionLen > 0) {
-					float divPhase = clampf((float) samplesSinceTick / sectionLen, 0.f, 0.999f);
-					uint32_t slotIdx = (subs > 1) ? (uint32_t) winIdx
-					                              : (uint32_t)(divPhase * bendSlotN[c]);
+					// Bend's 2/3/4/6/8-slot gesture is independent of Repeat.
+					// The old code used the Repeat window whenever Repeat > 1,
+					// turning an intended 2-slot flutter into as many as 1024
+					// unrelated decisions per division.
+					uint32_t slotIdx = (uint32_t) bsGridIndex(
+						gridT, sectionLen, bendSlotN[c]);
 					uint32_t hsl = bsHash(bendSeed[c], slotIdx);
 					if ((hsl & 0xFF) < 0x66) baseRev = !baseRev;      // reverse flutter
 					if (((hsl >> 8) & 0xFF) < 0x4D) {                 // pitch hop
-						static const float RS[4] = {2.f, 0.5f, 1.5f, 0.75f};
-						baseSpd *= RS[(hsl >> 16) & 3];
+						baseSpd *= ((hsl >> 16) & 1) ? 2.f : 0.5f;
 					}
 				}
 				speedTarget[c] = baseSpd;
@@ -728,21 +704,7 @@ struct BadSector : Module {
 			// clock, so stutter transients land on the grid at ANY speed or
 			// direction — content-based wrapping made pitched repeats drift
 			// against the beat (audible immediately on drums)
-			if (winIdx != lastWin[c]) {
-				if (target != subs) {
-					// live Repeat change: switch grids AT this boundary and
-					// recompute the window on the NEW grid, so the old and new
-					// grids can never fire back-to-back one-sample retriggers
-					subsActive[c] = target;
-					subs = target;
-					subLen = (double) sectionLen / subs;
-					winIdx = bsGridIndex(gridT, sectionLen, subs);
-					if (curSub[c] >= subs) curSub[c] = subs - 1;
-					want = (!macro && !silenceEnabled)
-						? clamp((int)(breakN * subs), 0, subs - 1)
-						: std::min(want, subs - 1);
-				}
-				lastWin[c] = winIdx;
+			if (retrigger) {
 				if (want != curSub[c]) {
 					curSub[c] = want;
 					if (!macro) uiTravBlip = 1.f;   // hardware: gold blip on traverse
@@ -759,7 +721,7 @@ struct BadSector : Module {
 			int wl = std::max(1, bsGridStart(winIdx + 1, sectionLen, subs) - ws);
 			subPhase[c] = clampf((float)(gridT - ws) / (float) wl, 0.f, 1.f);
 			wet[c] = readBuf(*channelBuf[c], readPos[c]);
-			// Bend tape character: wow/flutter wobble + scattered vinyl pops
+			// Bend tape character: subtle wow/flutter wobble
 			float spd = speed[c];
 			if (macro && bendEnabled && bendN > 0.001f) {
 				int pc = stereoUnique ? c : 0;
@@ -801,8 +763,8 @@ struct BadSector : Module {
 		uiBreak = macro ? (breakEnabled ? breakN : 0.f) : breakN;
 		uiCorrupt = corruptN;
 
-		// equal-power crossfade: a linear blend makes the 50% point read loud
-		// (correlated doubling) and full wet feel like a volume drop
+		// Equal-power dry/wet keeps uncorrelated live and delayed-buffer audio
+		// from dipping through the middle of the mix travel.
 		float mix = freezeMixWet ? 1.f : mixN;
 		float dryG = std::cos(mix * (float) M_PI * 0.5f);
 		float wetG = std::sin(mix * (float) M_PI * 0.5f);
@@ -816,7 +778,7 @@ struct BadSector : Module {
 			lights[id].setBrightnessSmooth(value * ledBrightness, dt);
 		};
 
-		// selector buttons: mode colour; blink while awaiting soft pickup
+		// selector buttons: mode colour (virtual knobs snap on selection)
 		float dBlink = damage.caught ? 1.f : (0.35f + 0.65f * (std::sin(args.frame * 0.0006f) > 0.f ? 1.f : 0.f));
 		float aBlink = cvAmt.caught ? 1.f : (0.35f + 0.65f * (std::sin(args.frame * 0.0006f) > 0.f ? 1.f : 0.f));
 		// the Bend channel is inert in Micro (manual speed replaces the
@@ -1100,8 +1062,10 @@ struct BadSectorWidget : ModuleWidget {
 		BadSector* m = getModule<BadSector>();
 		menu->addChild(new MenuSeparator);
 		menu->addChild(createIndexPtrSubmenuItem("Corrupt effect",
-			{"Decimate", "Dropout", "Destroy", "DJ Filter (extra)", "Vinyl Sim (extra)"}, &m->corruptSel));
-		menu->addChild(createBoolPtrMenuItem("Original 3 corrupt effects only (hardware)", "", &m->originalCorruptOnly));
+			{"Decimate", "Dropout", "Destroy", "DJ Filter", "Vinyl Sim"}, &m->corruptSel));
+		menu->addChild(createBoolPtrMenuItem("Limit Corrupt to original 3 effects", "", &m->originalCorruptOnly));
+		menu->addChild(createBoolPtrMenuItem("Macro: Bend enabled", "", &m->bendOn));
+		menu->addChild(createBoolPtrMenuItem("Macro: Break enabled", "", &m->breakOn));
 		menu->addChild(createBoolPtrMenuItem("Micro: reverse playback", "", &m->microRev));
 		menu->addChild(createBoolPtrMenuItem("Micro: Break knob = silence (off = traverse)", "", &m->microSilence));
 		menu->addChild(createBoolPtrMenuItem("MICRO knob active in Macro (global varispeed)", "", &m->microInMacro));
