@@ -749,6 +749,8 @@ struct BsSqLight : RedGreenBlueLight {
 		nvgFillColor(args.vg, color);
 		nvgFill(args.vg);
 	}
+	// the default size-scaled halo floods the panel from these large squares
+	void drawHalo(const DrawArgs& args) override {}
 };
 struct BsSqLightSmall : BsSqLight {
 	BsSqLightSmall() { box.size = mm2px(math::Vec(3.4f, 3.4f)); }
