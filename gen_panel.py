@@ -125,19 +125,32 @@ def write(name, size, body):
     s += "\n".join(body) + "\n</svg>\n"
     open(os.path.join(BASE, "res", "components", name), "w").write(s)
 
-# knob: black knurled cap, white pointer (16 mm)
+# knob: anodised black cap with sheen, knurled rim, exclamation pointer (16 mm)
 k = []
 c = 8.0
-k.append(f'<circle cx="{c}" cy="{c}" r="7.7" fill="#08090b"/>')
-for i in range(48):  # knurl ring
-    a = i * math.pi * 2 / 48
-    x0, y0 = c + math.cos(a) * 6.7, c + math.sin(a) * 6.7
-    x1, y1 = c + math.cos(a) * 7.55, c + math.sin(a) * 7.55
-    k.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#22242a" stroke-width="0.38"/>')
-k.append(f'<circle cx="{c}" cy="{c}" r="6.55" fill="#111318"/>')
-k.append(f'<circle cx="{c}" cy="{c}" r="6.55" fill="none" stroke="#26282f" stroke-width="0.25"/>')
-k.append(f'<circle cx="{c}" cy="{c}" r="4.9" fill="#16181d"/>')
-k.append(f'<rect x="{c - 0.5}" y="1.7" width="1.0" height="5.4" rx="0.5" fill="{INK}"/>')
+k.append('<defs>')
+k.append('<radialGradient id="cap" cx="8" cy="5.8" r="9.5" gradientUnits="userSpaceOnUse">'
+         '<stop offset="0" stop-color="#2f323a"/><stop offset="0.5" stop-color="#191b20"/>'
+         '<stop offset="1" stop-color="#0a0b0e"/></radialGradient>')
+k.append('<radialGradient id="rim" cx="8" cy="8" r="8" gradientUnits="userSpaceOnUse">'
+         '<stop offset="0.72" stop-color="#15171b"/><stop offset="0.95" stop-color="#08090b"/>'
+         '<stop offset="1" stop-color="#030405"/></radialGradient>')
+k.append('</defs>')
+k.append(f'<circle cx="{c}" cy="{c}" r="7.85" fill="url(#rim)"/>')
+for i in range(56):  # fine knurl on the rim
+    a = i * math.pi * 2 / 56
+    x0, y0 = c + math.cos(a) * 7.0, c + math.sin(a) * 7.0
+    x1, y1 = c + math.cos(a) * 7.72, c + math.sin(a) * 7.72
+    k.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#1e2026" stroke-width="0.30"/>')
+k.append(f'<circle cx="{c}" cy="{c}" r="6.6" fill="#08090b"/>')      # groove between rim and cap
+k.append(f'<circle cx="{c}" cy="{c}" r="6.25" fill="url(#cap)"/>')
+# light catching the top edge of the cap
+k.append('<path d="M 3.1 5.9 A 6.25 6.25 0 0 1 12.9 5.9" stroke="#50545e" stroke-width="0.32" fill="none"/>')
+# soft lower-edge shadow line
+k.append('<path d="M 3.4 10.6 A 6.25 6.25 0 0 0 12.6 10.6" stroke="#060708" stroke-width="0.4" fill="none"/>')
+# pointer: line to the rim with a dot at the centre end
+k.append('<rect x="7.62" y="2.1" width="0.76" height="4.3" rx="0.38" fill="#f2efe6"/>')
+k.append(f'<circle cx="{c}" cy="7.1" r="0.88" fill="#f2efe6"/>')
 write("knob.svg", 16, k)
 
 # screw: black torx (5 mm)
