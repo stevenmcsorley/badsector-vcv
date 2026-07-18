@@ -958,6 +958,10 @@ struct BadSectorWidget : ModuleWidget {
 		addSlider(&m->windowing, "Glitch windowing", 0.02f);
 		addSlider(&m->stereoWidth, "Stereo width", 0.f);
 		addSlider(&m->ledBrightness, "LED brightness", 1.f);
+		menu->addChild(createMenuItem("Clear buffer", "", [m]() {
+			std::fill(m->bufL.begin(), m->bufL.end(), 0.f);
+			std::fill(m->bufR.begin(), m->bufR.end(), 0.f);
+		}));
 		menu->addChild(createMenuItem("Restore default settings", "", [m]() { m->restoreDefaults(); }));
 	}
 };
