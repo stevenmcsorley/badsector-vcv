@@ -906,7 +906,7 @@ struct BsChecksumArt : TransparentWidget {
 			float tb = module ? module->uiTravBlip : 0.f;
 			NVGcolor stat = (tb > 0.f)
 				? nvgRGBA(0xff, (unsigned char)(0xc2 - 0x36 * (1.f - tb)), 0x3e, 0xd8)
-				: nvgRGBA(0x8f, 0x8c, 0x83, 0xc8);
+				: nvgRGBA(0xff, 0x24, 0x38, 0xd4);   // neon red readout
 			nvgFillColor(vg, stat);
 			nvgText(vg, mm2px((X0 + X1) * 0.5f), mm2px(Y0), txt, NULL);
 			// hardware Micro Bend LED colours, relocated: blue forward, cyan
