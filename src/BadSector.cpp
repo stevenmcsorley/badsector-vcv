@@ -495,7 +495,7 @@ struct BadSector : Module {
 			bool edge = clockTrig.process(inputs[CLOCK_INPUT].getVoltage(), 0.1f, 0.4f);
 			bool resetOnEdge = edge && resetDivisionPending;
 			if (edge) {
-				if (haveClk) extPeriod = clampf(sinceClk, 0.002f, 30.f);
+				if (haveClk) extPeriod = clampf(sinceClk, 0.001f, 30.f);
 				haveClk = true; sinceClk = 0.f;
 				if (resetOnEdge) { edgeCount = 0; resetDivisionPending = false; }
 				else edgeCount++;
@@ -505,7 +505,7 @@ struct BadSector : Module {
 			bool lost = sinceClk > extPeriod * 1.1f;
 			if (d <= 3) {                       // divisions /16 /8 /4 /2
 				int n = 16 >> d;
-				period = clampf(extPeriod * n, 0.002f, 120.f);
+				period = clampf(extPeriod * n, 0.001f, 120.f);
 				clkPhase += dt / period;
 				if (edge && (resetOnEdge || (edgeCount % n) == 0)) { tick = true; clkPhase = 0.f; }
 				else if (lost && clkPhase >= 1.f) { clkPhase -= std::floor(clkPhase); tick = true; }
@@ -517,7 +517,7 @@ struct BadSector : Module {
 			} else {                            // multiplications x2 x3 x4 x8
 				static const int MULT[4] = {2, 3, 4, 8};
 				int m = MULT[d - 5];
-				period = clampf(extPeriod / m, 0.002f, 30.f);
+				period = clampf(extPeriod / m, 0.001f, 30.f);
 				if (edge) { clkPhase = 0.f; multTick = 0; tick = true; }
 				else {
 					clkPhase += dt / period;
