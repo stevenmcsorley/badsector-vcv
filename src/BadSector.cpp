@@ -912,7 +912,7 @@ struct BadSectorWidget : ModuleWidget {
 
 		// jacks — CV row, gate row, audio row
 		static const float JX[6] = {9.f, 21.9f, 34.8f, 47.7f, 60.6f, 73.5f};
-		static const float CVY = 89.f, GATEY = 101.f, AUY = 114.f;
+		static const float CVY = 89.f, GATEY = 101.f, AUY = 116.5f;
 		static const int cvIds[6] = {
 			BadSector::BUFFER_CV_INPUT, BadSector::REPEAT_CV_INPUT, BadSector::MIX_CV_INPUT,
 			BadSector::BEND_CV_INPUT, BadSector::BREAK_CV_INPUT, BadSector::CORRUPT_CV_INPUT

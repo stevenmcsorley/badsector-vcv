@@ -36,7 +36,7 @@ KNOBS = {  # centre positions - keep in sync with src/BadSector.cpp
 SEL1, SEL2 = (33.6, 68.0), (47.7, 68.0)          # square selector buttons
 MODES = [(34.0, 54.4), (40.64, 54.4), (47.3, 54.4)]  # MODE / CLK / FRZ
 JX = [9.0, 21.9, 34.8, 47.7, 60.6, 73.5]
-CVY, GATEY, AUY = 89.0, 101.0, 114.0
+CVY, GATEY, AUY = 89.0, 101.0, 116.5
 AUX = [14.0, 31.7, 49.5, 67.2]
 
 def text_path(x, y, s, h, color, anchor="middle", spacing=0.0, weight=0.0):
@@ -150,7 +150,7 @@ for x, lab in zip(JX[:4], ["BEND", "BREAK", "CRPT", "FRZ"]):
 svg.append(text_path(1.6, GATEY + 0.6, "GATE", 1.5, DIM, anchor="start"))
 svg.append(f'<path d="M 5.6 {GATEY} L 47.7 {GATEY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
 for x, lab in zip(JX, ["IN L", "IN R", "CLOCK", "RESET", "OUT L", "OUT R"]):
-    svg.append(text_path(x, AUY - 6.4, lab, 1.9, INK, spacing=0.25))
+    svg.append(text_path(x, AUY - 5.3, lab, 1.9, INK, spacing=0.25))
 
 # ---- footers ----
 svg.append(f'<rect x="3.8" y="123.2" width="1.9" height="1.9" fill="none" stroke="{DIM}" stroke-width="0.3"/>')
