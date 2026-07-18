@@ -217,19 +217,8 @@ for i in range(12):
 s5.append(f'<path d="M {" L ".join(pts)} Z" fill="none" stroke="#3a3d45" stroke-width="0.3" stroke-linejoin="round"/>')
 write("screw.svg", 5, s5)
 
-# port: silver knurled bezel (7.6 mm)
-p = []
-pc = 3.8
-p.append(f'<circle cx="{pc}" cy="{pc}" r="3.7" fill="#96999f"/>')
-for i in range(32):
-    a = i * math.pi * 2 / 32
-    x0, y0 = pc + math.cos(a) * 3.15, pc + math.sin(a) * 3.15
-    x1, y1 = pc + math.cos(a) * 3.66, pc + math.sin(a) * 3.66
-    p.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#6c6f75" stroke-width="0.26"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="2.95" fill="#c4c7cc"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="2.42" fill="#54575c"/>')
-p.append(f'<circle cx="{pc}" cy="{pc}" r="2.0" fill="#060709"/>')
-write("port.svg", 7.6, p)
+# port.svg is a resized copy of Rack's stock PJ301M (VCV Component
+# Library, used under its Rack-plugin licence) — not generated here
 
 # square LED button, unpressed / pressed (7.5 mm)
 for frame, inset in (("sqbtn_0.svg", 0.0), ("sqbtn_1.svg", 0.28)):
