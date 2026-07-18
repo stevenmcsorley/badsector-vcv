@@ -35,7 +35,7 @@ KNOBS = {  # centre positions - keep in sync with src/BadSector.cpp
 }
 SEL1, SEL2 = (33.6, 68.0), (47.7, 68.0)          # square selector buttons
 MODES = [(34.0, 54.4), (40.64, 54.4), (47.3, 54.4)]  # MODE / CLK / FRZ
-JX = [9.0, 21.9, 34.8, 47.7, 60.6, 73.5]
+JX = [10.2, 22.86, 35.52, 48.18, 60.84, 73.5]
 CVY, GATEY, AUY = 89.0, 101.0, 116.5
 AUX = [14.0, 31.7, 49.5, 67.2]
 
@@ -145,7 +145,7 @@ for x, lab in zip(JX, ["BUFFER", "REPEAT", "MIX", "BEND", "BREAK", "CRPT"]):
     svg.append(text_path(x, CVY - 5.6, lab, 1.6, DIM, spacing=0.15))
 svg.append(text_path(1.6, CVY + 0.6, "CV", 1.5, DIM, anchor="start"))
 svg.append(f'<path d="M 4.6 {CVY} L 73.5 {CVY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
-for x, lab in zip(JX[:4], ["BEND", "BREAK", "CRPT", "FRZ"]):
+for x, lab in zip(JX[2:], ["FRZ", "BEND", "BREAK", "CRPT"]):
     svg.append(text_path(x, GATEY - 5.6, lab, 1.6, DIM, spacing=0.15))
 svg.append(text_path(1.6, GATEY + 0.6, "GATE", 1.5, DIM, anchor="start"))
 svg.append(f'<path d="M 5.6 {GATEY} L 47.7 {GATEY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
@@ -217,8 +217,8 @@ for i in range(12):
 s5.append(f'<path d="M {" L ".join(pts)} Z" fill="none" stroke="#3a3d45" stroke-width="0.3" stroke-linejoin="round"/>')
 write("screw.svg", 5, s5)
 
-# port.svg is a resized copy of Rack's stock PJ301M (VCV Component
-# Library, used under its Rack-plugin licence) — not generated here
+# port.svg is the ComfyUI-rendered hex jack (D:/comfy/panels/jack.svg,
+# seed 21), traced by vtracer and chroma-keyed — not generated here
 
 # square LED button, unpressed / pressed (7.5 mm)
 for frame, inset in (("sqbtn_0.svg", 0.0), ("sqbtn_1.svg", 0.28)):

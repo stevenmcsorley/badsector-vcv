@@ -906,7 +906,7 @@ struct BadSectorWidget : ModuleWidget {
 		addChild(createLightCentered<BsSqLightSmall>(mm2px(Vec(47.3f, 54.4f)), module, BadSector::FRZ_LIGHT));
 
 		// jacks — CV row, gate row, audio row
-		static const float JX[6] = {9.f, 21.9f, 34.8f, 47.7f, 60.6f, 73.5f};
+		static const float JX[6] = {10.2f, 22.86f, 35.52f, 48.18f, 60.84f, 73.5f};
 		static const float CVY = 89.f, GATEY = 101.f, AUY = 116.5f;
 		static const int cvIds[6] = {
 			BadSector::BUFFER_CV_INPUT, BadSector::REPEAT_CV_INPUT, BadSector::MIX_CV_INPUT,
@@ -914,12 +914,13 @@ struct BadSectorWidget : ModuleWidget {
 		};
 		for (int i = 0; i < 6; i++)
 			addInput(createInputCentered<BsPort>(mm2px(Vec(JX[i], CVY)), module, cvIds[i]));
+		// gate jacks sit under their matching CV columns; FRZ takes the MIX column
 		static const int gateIds[4] = {
-			BadSector::BEND_GATE_INPUT, BadSector::BREAK_GATE_INPUT, BadSector::CORRUPT_GATE_INPUT,
-			BadSector::FREEZE_GATE_INPUT
+			BadSector::FREEZE_GATE_INPUT, BadSector::BEND_GATE_INPUT,
+			BadSector::BREAK_GATE_INPUT, BadSector::CORRUPT_GATE_INPUT
 		};
 		for (int i = 0; i < 4; i++)
-			addInput(createInputCentered<BsPort>(mm2px(Vec(JX[i], GATEY)), module, gateIds[i]));
+			addInput(createInputCentered<BsPort>(mm2px(Vec(JX[i + 2], GATEY)), module, gateIds[i]));
 		// bottom row on the same grid: audio pairs outside, clock/reset centred
 		addInput(createInputCentered<BsPort>(mm2px(Vec(JX[0], AUY)), module, BadSector::IN_L_INPUT));
 		addInput(createInputCentered<BsPort>(mm2px(Vec(JX[1], AUY)), module, BadSector::IN_R_INPUT));
