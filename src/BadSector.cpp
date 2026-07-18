@@ -1,6 +1,6 @@
 // Bad Sector — a stereo buffer-corruption and broken-playback processor.
 //
-// v2 panel architecture: six large controls (BUFFER, REPEAT, MIX, MICRO,
+// v2 panel architecture: six large controls (TIME, REPEAT, MIX, MICRO,
 // DAMAGE, CV AMT). DAMAGE is one knob editing three independently stored
 // values (Bend / Break / Corrupt) selected by an illuminated square button
 // by snapping the virtual knob to the selected value; CV AMT is the same
@@ -119,6 +119,7 @@ struct BadSector : Module {
 	// clock
 	bool extClock = false;
 	float internalPhase = 0.f;
+	float timeKnobSmooth = 0.5f;
 	BsExternalClock externalClock;
 	float divBlip = 0.f, clkBlink = 0.f;
 
@@ -161,7 +162,7 @@ struct BadSector : Module {
 
 	BadSector() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
-		configParam(BUFFER_PARAM, 0.f, 1.f, 0.5f, "Buffer (16s .. 80Hz, or clock div/mult)");
+		configParam(BUFFER_PARAM, 0.f, 1.f, 0.5f, "Time (16s .. 80Hz, or clock div/mult)");
 		configParam(REPEAT_PARAM, 0.f, 1.f, 0.f, "Repeat (musical subdivisions, up to audio rate)");
 		configParam(MIX_PARAM, 0.f, 1.f, 0.5f, "Mix (wet = the previous clock division)", "%", 0.f, 100.f);
 		configParam(DAMAGE_PARAM, 0.f, 1.f, 0.f, "Damage (selected channel: Bend/Break/Corrupt)");
@@ -174,7 +175,7 @@ struct BadSector : Module {
 		configButton(FREEZE_PARAM, "Freeze");
 		configInput(IN_L_INPUT, "Left audio (normals to both channels)");
 		configInput(IN_R_INPUT, "Right audio");
-		configInput(BUFFER_CV_INPUT, "Buffer CV");
+		configInput(BUFFER_CV_INPUT, "Time CV");
 		configInput(REPEAT_CV_INPUT, "Repeat CV");
 		configInput(MIX_CV_INPUT, "Mix CV");
 		configInput(BEND_CV_INPUT, "Bend CV (1V/oct Micro pitch in Micro mode)");
@@ -230,7 +231,7 @@ struct BadSector : Module {
 		samplesSinceTick = 0; subsActive[0] = subsActive[1] = -1;
 		lastWin[0] = lastWin[1] = -1;
 		restoreDefaults(); extClock = false; stereoWidth = 0.f;
-		internalPhase = 0.f; externalClock.reset();
+		internalPhase = 0.f; timeKnobSmooth = 0.5f; externalClock.reset();
 		freezeHead = 0; wasFreezeActive = false;
 		wowPh[0] = flutPh[0] = 0.f; wowPh[1] = 0.5f; flutPh[1] = 0.3f;
 		ledBrightness = 1.f;
@@ -496,7 +497,13 @@ struct BadSector : Module {
 		for (int i = 0; i < 3; i++) att[i] = cvAmt.vals[i] * 2.f - 1.f;
 
 		// ---- effective control values ----
-		float timeN = clampf(params[BUFFER_PARAM].getValue() + inputs[BUFFER_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
+		// A short slew on the manual control prevents abrupt acquisition-period
+		// jumps while turning TIME. CV remains unslewed so deliberate clocked
+		// division changes retain their timing precision.
+		float timeKnob = params[BUFFER_PARAM].getValue();
+		float timeSlew = 1.f - std::exp(-dt / 0.04f);
+		timeKnobSmooth += (timeKnob - timeKnobSmooth) * timeSlew;
+		float timeN = clampf(timeKnobSmooth + inputs[BUFFER_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
 		float repeatsN = clampf(params[REPEAT_PARAM].getValue() + inputs[REPEAT_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
 		float mixN = clampf(params[MIX_PARAM].getValue() + inputs[MIX_CV_INPUT].getVoltage() * 0.1f, 0.f, 1.f);
 		float bendN = clampf(damage.vals[0] + inputs[BEND_CV_INPUT].getVoltage() * 0.1f * att[0], 0.f, 1.f);
@@ -610,7 +617,7 @@ struct BadSector : Module {
 			}
 			else {
 				// frozen: the window reaches BACK from the freeze point, so
-				// lengthening Buffer digs into older audio history
+				// lengthening Time digs into older audio history
 				sectionLen = clamp((int)(period * sr), 32, bufLen - 1);
 				sectionStart = freezeHead - sectionLen;
 				while (sectionStart < 0) sectionStart += bufLen;
@@ -659,7 +666,12 @@ struct BadSector : Module {
 		for (int c = 0; c < 2; c++) {
 			int target = std::max(1, macro && breakSubs[c] > 0 ? breakSubs[c] : repeats);
 			target = clamp(target, 1, std::max(1, sectionLen / 4));
-			int gridT = samplesSinceTick - 1;
+			int elapsedT = samplesSinceTick - 1;
+			// If TIME is lengthened mid-cycle, the next acquisition boundary
+			// moves later. Loop the previous beat-aligned section until it arrives
+			// instead of holding the final window envelope at zero (the audible
+			// dropout that used to occur while turning TIME).
+			int gridT = bsGridPlaybackTime(elapsedT, sectionLen);
 			int winIdx = 0;
 			// Resolve a pending Repeat change before deriving Bend's pattern,
 			// direction, speed, traverse position or envelope. The previous

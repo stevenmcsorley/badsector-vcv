@@ -100,6 +100,23 @@ int main() {
 		CHECK(retrigs == subs, "late edge: %d retriggers (want %d)", retrigs, subs);
 	}
 	{
+		// When TIME is lengthened mid-cycle, production loops the old acquired
+		// section until the new boundary rather than parking at subPhase=1 (zero
+		// gain with windowing). Its repeat sequence must remain coherent.
+		int len = 12000, subs = 4, last = -1, retrigs = 0;
+		for (int elapsed = 0; elapsed < len * 2 + len / 2; ++elapsed) {
+			int t = bsGridPlaybackTime(elapsed, len);
+			int w = bsGridIndex(t, len, subs);
+			if (w != last) { last = w; retrigs++; }
+			int ws = bsGridStart(w, len, subs);
+			int wl = bsGridStart(w + 1, len, subs) - ws;
+			float phase = (float)(t - ws) / wl;
+			CHECK(phase >= 0.f && phase < 1.f,
+			      "TIME transition parked envelope at %.3f", phase);
+		}
+		CHECK(retrigs == 10, "TIME transition: %d retriggers, want 10", retrigs);
+	}
+	{
 		// Bend's rhythmic gesture has its own 2/3/4/6/8-slot grid. Repeat must
 		// not silently replace that count (the old DSP made a 2-slot gesture
 		// change 32 times when Repeat was 32).

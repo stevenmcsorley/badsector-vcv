@@ -23,6 +23,15 @@ inline int bsGridStart(int k, int len, int subs) {
 	return (int)(((int64_t) k * len + subs - 1) / subs);
 }
 
+// While a Time change lengthens the current clock cycle, keep replaying the
+// last acquired division instead of parking its window envelope at zero until
+// the later boundary arrives. The new section is still acquired only on that
+// authoritative boundary.
+inline int bsGridPlaybackTime(int t, int len) {
+	if (len < 1 || t < 0) return 0;
+	return t % len;
+}
+
 // Advance the live repeat grid. A pending repeat-count change is applied only
 // when the currently active grid reaches a boundary; the index is then
 // recomputed on the new grid in the same sample. Keeping this state transition

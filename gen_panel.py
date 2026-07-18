@@ -29,7 +29,7 @@ W, H = 81.28, 128.5  # 16HP
 
 # ------------------------------------------------------------- layout ----
 KNOBS = {  # centre positions - keep in sync with src/BadSector.cpp
-    "BUFFER": (15.0, 25.0), "REPEAT": (66.28, 25.0),
+    "TIME": (15.0, 25.0), "REPEAT": (66.28, 25.0),
     "MIX": (15.0, 46.5), "MICRO": (66.28, 46.5),
     "DAMAGE": (15.0, 68.0), "CV AMT": (66.28, 68.0),
 }
@@ -149,7 +149,7 @@ for (x, y), lab in zip(MODES, ["MODE", "CLK", "FRZ"]):
     svg.append(text_path(x, y + 4.6, lab, 1.4, DIM, spacing=0.3))
 
 # ---- jack labels ----
-for x, lab in zip(JX, ["BUFFER", "REPEAT", "MIX", "BEND", "BREAK", "CRPT"]):
+for x, lab in zip(JX, ["TIME", "REPEAT", "MIX", "BEND", "BREAK", "CRPT"]):
     svg.append(text_path(x, CVY - 4.9, lab, 2.2, DIM, spacing=0.15))
 svg.append(text_path(1.6, CVY + 0.7, "CV", 1.8, DIM, anchor="start"))
 svg.append(f'<path d="M 4.6 {CVY} L 73.5 {CVY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')

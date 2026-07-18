@@ -17,7 +17,8 @@ delay is the price of the guarantee, and disappears with loop-based material.)
 
 ## Controls
 
-- **BUFFER** — the clock. Internal: 16 s – 80 Hz. External: divide/multiply of the CLOCK
+- **TIME** — the clock/acquisition period. Internal: 16 s – 80 Hz. External:
+  divide/multiply of the CLOCK
   input (/16 /8 /4 /2 ×1 ×2 ×3 ×4 ×8), hard-locked to incoming edges, free-running at the
   last rate when the clock disappears. Accepts audio-rate clocks to ~1 kHz for
   frequency-locked tones.
@@ -85,7 +86,7 @@ effect and a checksum that destabilises as corruption rises.
 
 ## Jacks
 
-Three rows on one grid: a CV row (Buffer, Repeat, Mix, Bend, Break, Crpt), a gate row
+Three rows on one grid: a CV row (Time, Repeat, Mix, Bend, Break, Crpt), a gate row
 aligned under the matching CV columns (Frz, Bend, Break, Crpt), and audio I/O with
 **CLOCK** and **RESET** centre-bottom. RESET resyncs the internal clock immediately, or
 realigns the external division counter on the next beat — patch your sequencer's reset
