@@ -713,13 +713,6 @@ struct BadSector : Module {
 };
 
 // ------------------------------------------------------ custom hardware ----
-struct BsKnob : app::SvgKnob {
-	BsKnob() {
-		minAngle = -0.83f * M_PI;
-		maxAngle = 0.83f * M_PI;
-		setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/knob.svg")));
-	}
-};
 struct BsScrew : app::SvgScrew {
 	BsScrew() { setSvg(Svg::load(asset::plugin(pluginInstance, "res/components/screw.svg"))); }
 };
@@ -887,12 +880,12 @@ struct BadSectorWidget : ModuleWidget {
 		art->module = module;
 		addChild(art);
 
-		addParam(createParamCentered<BsKnob>(mm2px(Vec(KX_L, KY1)), module, BadSector::BUFFER_PARAM));
-		addParam(createParamCentered<BsKnob>(mm2px(Vec(KX_R, KY1)), module, BadSector::REPEAT_PARAM));
-		addParam(createParamCentered<BsKnob>(mm2px(Vec(KX_L, KY2)), module, BadSector::MIX_PARAM));
-		addParam(createParamCentered<BsKnob>(mm2px(Vec(KX_R, KY2)), module, BadSector::MICRO_PARAM));
-		addParam(createParamCentered<BsKnob>(mm2px(Vec(KX_L, KY3)), module, BadSector::DAMAGE_PARAM));
-		addParam(createParamCentered<BsKnob>(mm2px(Vec(KX_R, KY3)), module, BadSector::CVAMT_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(KX_L, KY1)), module, BadSector::BUFFER_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(KX_R, KY1)), module, BadSector::REPEAT_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(KX_L, KY2)), module, BadSector::MIX_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(KX_R, KY2)), module, BadSector::MICRO_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(KX_L, KY3)), module, BadSector::DAMAGE_PARAM));
+		addParam(createParamCentered<RoundLargeBlackKnob>(mm2px(Vec(KX_R, KY3)), module, BadSector::CVAMT_PARAM));
 
 		// selectors with square lights + stored-value dots
 		addParam(createParamCentered<BsSqButton>(mm2px(Vec(33.6f, 68.f)), module, BadSector::DMGSEL_PARAM));
