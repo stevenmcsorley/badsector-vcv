@@ -418,25 +418,18 @@ struct BadSector : Module {
 			// than multiplying both zones into accidental three-octave jumps.
 			for (int c = 0; c < nCh; c++) {
 				float sp = 1.f; bool rv = false;
-				// full-division reverse stays occasional — time-mirroring a
-				// whole beat moves the pluck transients off the pulse; the
-				// reversed "magic" lives in the short slot licks below
-				if (z >= 1 && rng.f() < za(1) * 0.3f) rv = true;
-				// two-octave range only ABOVE noon and sparingly — x4 / /4 on a
-				// melody is what read as "goes fast then slow"; octave jumps
-				// below, biased down (half speed = octave down is lusher)
-				if (z >= 4 && rng.f() < za(4) * 0.25f)
+				if (z >= 1 && rng.f() < za(1) * 0.35f) rv = true;
+				if (z >= 3 && rng.f() < za(3) * 0.4f)
 					sp = (rng.u32() & 1) ? 4.f : 0.25f;
-				else if (z >= 2 && rng.f() < za(2) * 0.45f)
-					sp = (rng.f() < 0.6f) ? 0.5f : 2.f;
-				if (z >= 5 && rng.f() < za(5) * 0.2f) tapeStop[c] = 1.f;
-				// zone 3+: rhythmic stutter gestures are the Bend magic —
-				// halves/quarters at noon (reversed licks + octave hops on the
-				// sub-grid), busier slot counts above it
+				else if (z >= 2 && rng.f() < za(2) * 0.5f)
+					sp = (rng.u32() & 1) ? 2.f : 0.5f;
+				if (z >= 4 && rng.f() < za(4) * 0.3f) tapeStop[c] = 1.f;
+				// zone 3+: rhythmic flutter patterns — the division splits into
+				// musical slots, each with its own reverse/pitch decision
 				bendSlotN[c] = 1;
 				if (z >= 3 && rng.f() < za(3) * 0.55f) {
-					static const int SL[5] = {2, 4, 3, 6, 8};
-					int hi = (z >= 4) ? 5 : 2;
+					static const int SL[5] = {2, 3, 4, 6, 8};
+					int hi = (z >= 4) ? 5 : 3;
 					bendSlotN[c] = SL[(int)(rng.f() * hi)];
 					bendSeed[c] = rng.u32();
 					rv = false;   // flutter slots do the reversing — short licks,
@@ -704,12 +697,8 @@ struct BadSector : Module {
 					uint32_t slotIdx = (uint32_t) bsGridIndex(
 						gridT, sectionLen, bendSlotN[c]);
 					uint32_t hsl = bsHash(bendSeed[c], slotIdx);
-					// slot odds follow the knob: ~1 in 4 slots reversed at
-					// noon, over half at full crank
-					uint32_t flipP = 0x40 + (uint32_t)(0x50 *
-						clampf((bendN - 0.33f) * 1.6f, 0.f, 1.f));
-					if ((hsl & 0xFF) < flipP) baseRev = !baseRev;     // reverse lick
-					if (((hsl >> 8) & 0xFF) < 0x40) {                 // octave hop
+					if ((hsl & 0xFF) < 0x66) baseRev = !baseRev;      // reverse flutter
+					if (((hsl >> 8) & 0xFF) < 0x4D) {                 // pitch hop
 						baseSpd *= ((hsl >> 16) & 1) ? 2.f : 0.5f;
 					}
 				}
