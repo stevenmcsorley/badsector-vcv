@@ -94,7 +94,7 @@ svg.append(text_path(66.2, 15.0, "A3", 1.9, DIM, anchor="start"))
 
 # ---- knob markers + labels ----
 for name, (x, y) in KNOBS.items():
-    svg.append(f'<circle cx="{x}" cy="{y - 8.0}" r="0.6" fill="{INK}"/>')
+    svg.append(f'<circle cx="{x}" cy="{y - 7.3}" r="0.6" fill="{INK}"/>')
     svg.append(text_path(x, y + 10.4, name, 2.7, INK, spacing=0.5))
 
 # ---- hazard bar beside DAMAGE (reference style) ----
@@ -168,30 +168,42 @@ def write(name, size, body):
     s += "\n".join(body) + "\n</svg>\n"
     open(os.path.join(BASE, "res", "components", name), "w").write(s)
 
-# knob: anodised black cap with sheen, knurled rim, exclamation pointer (14 mm)
+# knob: rounded dome cap like the concept art — ribbed skirt, high light,
+# specular crown, exclamation pointer (12.5 mm)
 k = []
-c = 7.0
+c = 6.25
 k.append('<defs>')
-k.append('<radialGradient id="cap" cx="7" cy="5.1" r="8.3" gradientUnits="userSpaceOnUse">'
-         '<stop offset="0" stop-color="#2f323a"/><stop offset="0.5" stop-color="#191b20"/>'
-         '<stop offset="1" stop-color="#0a0b0e"/></radialGradient>')
-k.append('<radialGradient id="rim" cx="7" cy="7" r="7" gradientUnits="userSpaceOnUse">'
-         '<stop offset="0.72" stop-color="#15171b"/><stop offset="0.95" stop-color="#08090b"/>'
-         '<stop offset="1" stop-color="#030405"/></radialGradient>')
+k.append('<radialGradient id="dome" gradientUnits="userSpaceOnUse" cx="6.25" cy="4.4" r="6.6">'
+         '<stop  offset="0" style="stop-color:#3b3e46"/>'
+         '<stop  offset="0.45" style="stop-color:#1c1e24"/>'
+         '<stop  offset="0.8" style="stop-color:#0e0f13"/>'
+         '<stop  offset="1" style="stop-color:#07080b"/></radialGradient>')
+k.append('<radialGradient id="gloss" gradientUnits="userSpaceOnUse" cx="6.25" cy="3.6" r="3.1">'
+         '<stop  offset="0" style="stop-color:#4d505a"/>'
+         '<stop  offset="1" style="stop-color:#23252b"/></radialGradient>')
+k.append('<radialGradient id="skirt" gradientUnits="userSpaceOnUse" cx="6.25" cy="6.25" r="6.2">'
+         '<stop  offset="0.75" style="stop-color:#101116"/>'
+         '<stop  offset="1" style="stop-color:#040506"/></radialGradient>')
 k.append('</defs>')
-k.append(f'<circle cx="{c}" cy="{c}" r="6.85" fill="url(#rim)"/>')
-for i in range(52):
-    a = i * math.pi * 2 / 52
-    x0, y0 = c + math.cos(a) * 6.1, c + math.sin(a) * 6.1
-    x1, y1 = c + math.cos(a) * 6.73, c + math.sin(a) * 6.73
-    k.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="#1e2026" stroke-width="0.27"/>')
-k.append(f'<circle cx="{c}" cy="{c}" r="5.75" fill="#08090b"/>')
-k.append(f'<circle cx="{c}" cy="{c}" r="5.45" fill="url(#cap)"/>')
-k.append('<path d="M 2.6 5.2 A 5.45 5.45 0 0 1 11.4 5.2" stroke="#50545e" stroke-width="0.3" fill="none"/>')
-k.append('<path d="M 3.0 9.2 A 5.45 5.45 0 0 0 11.0 9.2" stroke="#060708" stroke-width="0.36" fill="none"/>')
-k.append('<rect x="6.67" y="1.85" width="0.66" height="3.75" rx="0.33" fill="#f2efe6"/>')
-k.append(f'<circle cx="{c}" cy="6.2" r="0.78" fill="#f2efe6"/>')
-write("knob.svg", 14, k)
+# ribbed skirt
+k.append(f'<circle cx="{c}" cy="{c}" r="6.1" fill="url(#skirt)"/>')
+for i in range(32):
+    a = (i + 0.5) * math.pi * 2 / 32
+    x0, y0 = c + math.cos(a) * 4.95, c + math.sin(a) * 4.95
+    x1, y1 = c + math.cos(a) * 6.02, c + math.sin(a) * 6.02
+    col = "#181a20" if i % 2 == 0 else "#07080a"
+    k.append(f'<path d="M {x0:.3f} {y0:.3f} L {x1:.3f} {y1:.3f}" stroke="{col}" stroke-width="0.62"/>')
+# groove, then the dome
+k.append(f'<circle cx="{c}" cy="{c}" r="4.85" fill="#050608"/>')
+k.append(f'<circle cx="{c}" cy="{c}" r="4.55" fill="url(#dome)"/>')
+# specular crown high on the dome
+k.append(f'<circle cx="{c}" cy="3.95" r="2.35" fill="url(#gloss)"/>')
+# rim light on the top edge
+k.append('<path d="M 2.6 4.5 A 4.55 4.55 0 0 1 9.9 4.5" stroke="#565a64" stroke-width="0.28" fill="none"/>')
+# pointer: line to the rim with a dot at its centre end
+k.append(f'<rect x="{c - 0.3}" y="1.55" width="0.6" height="3.15" rx="0.3" fill="#f2efe6"/>')
+k.append(f'<circle cx="{c}" cy="5.5" r="0.68" fill="#f2efe6"/>')
+write("knob.svg", 12.5, k)
 
 # screw: black torx (5 mm)
 s5 = []
