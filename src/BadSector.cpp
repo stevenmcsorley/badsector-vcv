@@ -136,6 +136,10 @@ struct BadSector : Module {
 	// reverse flutters and pitch hops landing on musical sub-boundaries
 	int bendSlotN[2] = {1, 1};
 	uint32_t bendSeed[2] = {1u, 2u};
+	// gesture persistence: a rolled Bend gesture usually holds for a couple of
+	// divisions (same speed/direction/pattern seed), so the ear hears a musical
+	// idea repeat on the grid instead of a fresh accident every beat
+	int bendHold[2] = {0, 0};
 	static uint32_t bsHash(uint32_t a, uint32_t b) {
 		uint32_t h = a * 0x9E3779B9u ^ (b + 0x7F4A7C15u);
 		h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
@@ -211,6 +215,7 @@ struct BadSector : Module {
 			macroSilence[c] = tapeStop[c] = speedSlew[c] = 0.f;
 			breakSubs[c] = 0;
 			bendSlotN[c] = 1;
+			bendHold[c] = 0;
 		}
 	}
 	void restoreDefaults() {
@@ -417,19 +422,29 @@ struct BadSector : Module {
 			// Manual zones are Octaves then 2 Octaves. Select one range rather
 			// than multiplying both zones into accidental three-octave jumps.
 			for (int c = 0; c < nCh; c++) {
+				// a held gesture repeats verbatim (same speed, direction and
+				// pattern seed) — tape stops don't refire while holding
+				if (bendHold[c] > 0) { bendHold[c]--; continue; }
 				float sp = 1.f; bool rv = false;
-				if (z >= 1 && rng.f() < za(1) * 0.35f) rv = true;
-				if (z >= 3 && rng.f() < za(3) * 0.4f)
+				// reverse is the heart of Bend: reversed playback of melodic
+				// material stays perfectly consonant, so it dominates the
+				// middle of the knob (the "ethereal" zone)
+				if (z >= 1 && rng.f() < 0.15f + 0.35f * clampf(bendAmt * 2.f, 0.f, 1.f))
+					rv = true;
+				// two-octave range only ABOVE noon and sparingly — x4 / /4 on a
+				// melody is what read as "goes fast then slow"; octave jumps
+				// below, biased down (half speed = octave down is lusher)
+				if (z >= 4 && rng.f() < za(4) * 0.25f)
 					sp = (rng.u32() & 1) ? 4.f : 0.25f;
-				else if (z >= 2 && rng.f() < za(2) * 0.5f)
-					sp = (rng.u32() & 1) ? 2.f : 0.5f;
-				if (z >= 4 && rng.f() < za(4) * 0.3f) tapeStop[c] = 1.f;
-				// zone 3+: rhythmic flutter patterns — the division splits into
-				// musical slots, each with its own reverse/pitch decision
+				else if (z >= 2 && rng.f() < za(2) * 0.45f)
+					sp = (rng.f() < 0.6f) ? 0.5f : 2.f;
+				if (z >= 5 && rng.f() < za(5) * 0.2f) tapeStop[c] = 1.f;
+				// zone 3+: rhythmic stutter gestures — gentle halves/quarters
+				// at noon, busier slot counts above it
 				bendSlotN[c] = 1;
-				if (z >= 3 && rng.f() < za(3) * 0.55f) {
-					static const int SL[5] = {2, 3, 4, 6, 8};
-					int hi = (z >= 4) ? 5 : 3;
+				if (z >= 3 && rng.f() < za(3) * 0.35f) {
+					static const int SL[5] = {2, 4, 3, 6, 8};
+					int hi = (z >= 4) ? 5 : 2;
 					bendSlotN[c] = SL[(int)(rng.f() * hi)];
 					bendSeed[c] = rng.u32();
 					rv = false;   // flutter slots do the reversing — short licks,
@@ -437,6 +452,11 @@ struct BadSector : Module {
 				}
 				macroSpeed[c] = sp; macroRev[c] = rv;
 				speedSlew[c] = (z >= 5) ? za(5) : 0.f;   // 0..1, scaled by period at use
+				// hold the gesture for 2 or 4 divisions total (phrase lengths);
+				// the top of the knob re-rolls faster — mayhem is the point there
+				float hf = rng.f();
+				bendHold[c] = (z >= 5) ? (hf < 0.4f ? 1 : 0)
+				                       : (hf < 0.45f ? 1 : (hf < 0.75f ? 3 : 0));
 			}
 			if (!stereoUnique) {
 				macroSpeed[1] = macroSpeed[0]; macroRev[1] = macroRev[0];
@@ -448,6 +468,7 @@ struct BadSector : Module {
 			macroRev[0] = macroRev[1] = false;
 			speedSlew[0] = speedSlew[1] = 0.f;
 			bendSlotN[0] = bendSlotN[1] = 1;
+			bendHold[0] = bendHold[1] = 0;
 		}
 
 		if (breakEnabled && breakAmt > 0.001f) {
@@ -697,8 +718,12 @@ struct BadSector : Module {
 					uint32_t slotIdx = (uint32_t) bsGridIndex(
 						gridT, sectionLen, bendSlotN[c]);
 					uint32_t hsl = bsHash(bendSeed[c], slotIdx);
-					if ((hsl & 0xFF) < 0x66) baseRev = !baseRev;      // reverse flutter
-					if (((hsl >> 8) & 0xFF) < 0x4D) {                 // pitch hop
+					// slot odds follow the knob: a couple of touched slots at
+					// noon (~18%), up to half the slots at full crank
+					uint32_t flipP = 0x2E + (uint32_t)(0x52 *
+						clampf((bendN - 0.33f) * 1.6f, 0.f, 1.f));
+					if ((hsl & 0xFF) < flipP) baseRev = !baseRev;     // reverse lick
+					if (((hsl >> 8) & 0xFF) < 0x40) {                 // octave hop
 						baseSpd *= ((hsl >> 16) & 1) ? 2.f : 0.5f;
 					}
 				}
