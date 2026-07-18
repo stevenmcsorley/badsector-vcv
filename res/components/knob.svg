@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16mm" height="16mm" viewBox="0 0 16 16">
+<circle cx="8.0" cy="8.0" r="7.7" fill="#08090b"/>
+<path d="M 14.700 8.000 L 15.550 8.000" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 14.643 8.875 L 15.485 8.985" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 14.472 9.734 L 15.293 9.954" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 14.190 10.564 L 14.975 10.889" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 13.802 11.350 L 14.538 11.775" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 13.315 12.079 L 13.990 12.596" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 12.738 12.738 L 13.339 13.339" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 12.079 13.315 L 12.596 13.990" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 11.350 13.802 L 11.775 14.538" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 10.564 14.190 L 10.889 14.975" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 9.734 14.472 L 9.954 15.293" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 8.875 14.643 L 8.985 15.485" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 8.000 14.700 L 8.000 15.550" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 7.125 14.643 L 7.015 15.485" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 6.266 14.472 L 6.046 15.293" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 5.436 14.190 L 5.111 14.975" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 4.650 13.802 L 4.225 14.538" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 3.921 13.315 L 3.404 13.990" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 3.262 12.738 L 2.661 13.339" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 2.685 12.079 L 2.010 12.596" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 2.198 11.350 L 1.462 11.775" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 1.810 10.564 L 1.025 10.889" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 1.528 9.734 L 0.707 9.954" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 1.357 8.875 L 0.515 8.985" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 1.300 8.000 L 0.450 8.000" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 1.357 7.125 L 0.515 7.015" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 1.528 6.266 L 0.707 6.046" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 1.810 5.436 L 1.025 5.111" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 2.198 4.650 L 1.462 4.225" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 2.685 3.921 L 2.010 3.404" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 3.262 3.262 L 2.661 2.661" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 3.921 2.685 L 3.404 2.010" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 4.650 2.198 L 4.225 1.462" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 5.436 1.810 L 5.111 1.025" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 6.266 1.528 L 6.046 0.707" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 7.125 1.357 L 7.015 0.515" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 8.000 1.300 L 8.000 0.450" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 8.875 1.357 L 8.985 0.515" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 9.734 1.528 L 9.954 0.707" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 10.564 1.810 L 10.889 1.025" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 11.350 2.198 L 11.775 1.462" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 12.079 2.685 L 12.596 2.010" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 12.738 3.262 L 13.339 2.661" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 13.315 3.921 L 13.990 3.404" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 13.802 4.650 L 14.538 4.225" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 14.190 5.436 L 14.975 5.111" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 14.472 6.266 L 15.293 6.046" stroke="#22242a" stroke-width="0.38"/>
+<path d="M 14.643 7.125 L 15.485 7.015" stroke="#22242a" stroke-width="0.38"/>
+<circle cx="8.0" cy="8.0" r="6.55" fill="#111318"/>
+<circle cx="8.0" cy="8.0" r="6.55" fill="none" stroke="#26282f" stroke-width="0.25"/>
+<circle cx="8.0" cy="8.0" r="4.9" fill="#16181d"/>
+<rect x="7.5" y="1.7" width="1.0" height="5.4" rx="0.5" fill="#ece8dd"/>
+</svg>
