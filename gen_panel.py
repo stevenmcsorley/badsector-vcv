@@ -142,11 +142,11 @@ for (x, y), lab in zip(MODES, ["MODE", "CLK", "FRZ"]):
 
 # ---- jack labels ----
 for x, lab in zip(JX, ["BUFFER", "REPEAT", "MIX", "BEND", "BREAK", "CRPT"]):
-    svg.append(text_path(x, CVY - 5.6, lab, 2.0, DIM, spacing=0.15))
+    svg.append(text_path(x, CVY - 4.9, lab, 2.2, DIM, spacing=0.15))
 svg.append(text_path(1.6, CVY + 0.7, "CV", 1.8, DIM, anchor="start"))
 svg.append(f'<path d="M 4.6 {CVY} L 73.5 {CVY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
 for x, lab in zip(JX[2:], ["FRZ", "BEND", "BREAK", "CRPT"]):
-    svg.append(text_path(x, GATEY - 5.6, lab, 2.0, DIM, spacing=0.15))
+    svg.append(text_path(x, GATEY - 4.9, lab, 2.2, DIM, spacing=0.15))
 svg.append(text_path(1.6, GATEY + 0.7, "GATE", 1.8, DIM, anchor="start"))
 svg.append(f'<path d="M 5.6 {GATEY} L 47.7 {GATEY}" stroke="#34363c" stroke-width="0.35" fill="none"/>')
 for x, lab in zip(JX, ["IN L", "IN R", "CLOCK", "RESET", "OUT L", "OUT R"]):
