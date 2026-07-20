@@ -11,6 +11,7 @@
 #include "BsSelector.hpp"
 #include "BsGrid.hpp"
 #include "BsClock.hpp"
+#include "BsBend.hpp"
 #include <cmath>
 #include <vector>
 
@@ -396,26 +397,18 @@ struct BadSector : Module {
 	void rollMacro(float bendAmt, float breakAmt, int repeats, int repeatsIdx, bool bendEnabled, bool breakEnabled) {
 		int nCh = stereoUnique ? 2 : 1;
 		if (bendEnabled && bendAmt > 0.001f) {
-			int z = (int) std::ceil(bendAmt * 6.f);
-			float top = clampf(bendAmt * 6.f - (z - 1), 0.f, 1.f);
-			auto za = [&](int k) { return (k < z) ? 1.f : (k == z ? top : 0.f); };
-			// Manual zones are Octaves then 2 Octaves. Select one range rather
-			// than multiplying both zones into accidental three-octave jumps.
 			// Manual model: ONE playback speed + direction decision per clock
 			// division, whole-division scope, palette growing through the knob
 			// zones Reverse / Octaves / 2 Octaves / Tape Stop / Slew /
 			// Everything. No sub-division patterns, no continuous wobble —
 			// Repeat provides the stutters.
 			for (int c = 0; c < nCh; c++) {
-				float sp = 1.f; bool rv = false;
-				if (z >= 1 && rng.f() < za(1) * 0.35f) rv = true;
-				if (z >= 3 && rng.f() < za(3) * 0.4f)
-					sp = (rng.u32() & 1) ? 4.f : 0.25f;
-				else if (z >= 2 && rng.f() < za(2) * 0.5f)
-					sp = (rng.u32() & 1) ? 2.f : 0.5f;
-				if (z >= 4 && rng.f() < za(4) * 0.3f) tapeStop[c] = 1.f;
-				macroSpeed[c] = sp; macroRev[c] = rv;
-				speedSlew[c] = (z >= 5) ? za(5) : 0.f;   // 0..1, scaled by period at use
+				BsBendDecision d = bsBendDecision(bendAmt,
+					rng.f(), rng.f(), rng.f(), rng.f(), rng.f(), rng.f());
+				macroSpeed[c] = d.speed;
+				macroRev[c] = d.reverse;
+				if (d.tapeStop) tapeStop[c] = 1.f;
+				speedSlew[c] = d.slew;   // 0..1, scaled by period at use
 			}
 			if (!stereoUnique) {
 				macroSpeed[1] = macroSpeed[0]; macroRev[1] = macroRev[0];

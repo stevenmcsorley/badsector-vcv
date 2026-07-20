@@ -31,11 +31,12 @@ delay is the price of the guarantee, and disappears with loop-based material.)
   channels snaps the knob to that channel's stored value. The dot above the button shows
   the selected channel's level.
   - **Bend** — tape failures, rolled fresh every division: varispeed jumps in octaves and
-    two-octave ranges, reverses, beat-length tape stops, subtle wow/flutter and gliding
-    speed slews at the top of the range. Higher settings can layer a held 2/3/4/6/8-slot
-    reverse-and-pitch gesture over the Repeat grid; both grids use exact beat fractions.
-    No synthetic crackle is added to Bend; low windowing can still expose intentional
-    hard-edge clicks at slice changes.
+    two-octave ranges, reverses, beat-length tape stops and gliding speed slews at the top
+    of the range. Each choice lasts for one complete clock division; Bend does not invent
+    a second flutter/stutter grid. Early octave changes are occasional, while the final
+    Everything span raises the likelihood of the full palette. No synthetic crackle is
+    added to Bend; low windowing can still expose intentional hard-edge clicks at slice
+    changes.
   - **Break** — digital failures: subsection jumps, extra repeats (always from the musical
     table), and up to 90 % silence per repeat at the top.
   - **Corrupt** — end-of-chain media damage: **Decimate** (fixed shuffled bit-crush,
@@ -69,8 +70,8 @@ channels that are inactive in the current mode dim to 25 %.
 
 - Internal Time and all nine external /16…×8 settings acquire on clock boundaries.
 - Repeat, Break-added repeats, Traverse changes, synchronized silence, Bend rolls,
-  reverse-flutter slots, tape stops, Freeze latching and Reset all resolve from that clock
-  grid. Pitch and direction change the content inside a window, never its next retrigger.
+  tape stops, Freeze latching and Reset all resolve from that clock grid. Pitch and
+  direction change the content inside a window, never its next retrigger.
 - If an external clock vanishes, the learned phase keeps running without a deliberately
   late first free-run beat; a returning edge re-anchors the grid without a near-duplicate
   trigger. The clock LED goes dim after four missing input beats.
@@ -107,13 +108,15 @@ make
 make install
 ```
 
-Three unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
+Four unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
 `timing_test.cpp` validates the repeat grid — the same `BsGrid.hpp` arithmetic the module
 runs — against exact rational clock fractions: exact window counts, boundaries within one
 sample of the ideal fraction, and safe live Repeat changes, across sample rates and odd
 division lengths. `clock_test.cpp` exercises every external division/multiplier, source
 loss, late edges, live ratio changes and Reset against the production `BsClock.hpp`.
 `selector_test.cpp` covers the three-channel virtual-knob snap recall used by the module.
+`bend_test.cpp` locks the cumulative manual zones, sparse early octave density, interval
+selection and top-of-range Everything ramp to the same `BsBend.hpp` policy used by DSP.
 
 ## License
 

@@ -116,32 +116,6 @@ int main() {
 		}
 		CHECK(retrigs == 10, "TIME transition: %d retriggers, want 10", retrigs);
 	}
-	{
-		// Bend's rhythmic gesture has its own 2/3/4/6/8-slot grid. Repeat must
-		// not silently replace that count (the old DSP made a 2-slot gesture
-		// change 32 times when Repeat was 32).
-		const int bendSlots[5] = {2, 3, 4, 6, 8};
-		int len = 23999;
-		for (int bi = 0; bi < 5; ++bi) {
-			for (int ri = 0; ri < 20; ++ri) {
-				int last = -1, changes = 0;
-				for (int t = 0; t < len; ++t) {
-					int slot = bsGridIndex(t, len, bendSlots[bi]);
-					if (slot != last) { last = slot; changes++; }
-				}
-				CHECK(changes == bendSlots[bi],
-				      "Bend slots=%d Repeat=%d: %d decisions",
-				      bendSlots[bi], RPT[ri], changes);
-			}
-		}
-		int oldChanges = 0, last = -1;
-		for (int t = 0; t < len; ++t) {
-			int oldSlot = bsGridIndex(t, len, 32); // old Repeat-derived slot index
-			if (oldSlot != last) { last = oldSlot; oldChanges++; }
-		}
-		CHECK(oldChanges == 32, "old Repeat-derived Bend model lost its test teeth");
-	}
-
 	// ---- 3. live Repeat change mid-division (module's re-grid logic) ----
 	{
 		// knob turns 2 -> 4 mid-window in a 24000-sample division. The change
