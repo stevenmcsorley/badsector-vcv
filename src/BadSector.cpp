@@ -15,6 +15,7 @@
 #include "BsMix.hpp"
 #include "BsRepeat.hpp"
 #include "BsControlLaws.hpp"
+#include "BsDisplayTelemetry.hpp"
 #include <cmath>
 #include <vector>
 
@@ -148,6 +149,8 @@ struct BadSector : Module {
 	uint32_t uiTickSerial = 0;
 	int uiSlices = 1;
 	int uiDivIdx = -1;   // -1 = internal clock
+	BsScopeTelemetry uiScope;
+	int uiScopeCounter = 0;
 
 	DbRng rng;
 	dsp::BooleanTrigger dmgSelBtn, cvSelBtn, modeBtn, clockBtn;
@@ -195,6 +198,7 @@ struct BadSector : Module {
 		bufL.assign(bufLen, 0.f); bufR.assign(bufLen, 0.f);
 		writeHead = 0; readPos[0] = readPos[1] = 0.f; sectionStart = 0;
 		recordedSamples = 0; bufferPrimed = false; bufferPrimedFade = 0.f;
+		uiScope.clear(); uiScopeCounter = 0;
 	}
 	void onSampleRateChange(const SampleRateChangeEvent& e) override {
 		if ((int)(e.sampleRate * MAX_SECONDS) != bufLen) alloc(e.sampleRate);
@@ -239,6 +243,7 @@ struct BadSector : Module {
 		djL.reset(); djR.reset();
 		vinylLpL = vinylLpR = 0.f;
 		dcPrevInL = dcPrevInR = dcPrevOutL = dcPrevOutR = 0.f;
+		uiScope.clear(); uiScopeCounter = 0;
 	}
 
 	json_t* dataToJson() override {
@@ -737,6 +742,7 @@ struct BadSector : Module {
 		float wetL = wet[0], wetR = wet[1];
 
 		bsStereoEnhance(wetL, wetR, stereoWidth);
+		float bentBrokenL = wetL, bentBrokenR = wetR;
 
 		applyCorrupt(corruptEffect, corruptN, wetL, wetR, sr);
 
@@ -761,8 +767,26 @@ struct BadSector : Module {
 		BsMixGains mg = bsPrimedMixGains(mix, bufferPrimedFade);
 		float outL = inL * mg.liveDry + bufferedDry[0] * mg.bufferedDry + wetL * mg.wet;
 		float outR = inR * mg.liveDry + bufferedDry[1] * mg.bufferedDry + wetR * mg.wet;
-		outputs[OUT_L_OUTPUT].setVoltage(clampf(outL * 5.f, -7.f, 7.f));
-		outputs[OUT_R_OUTPUT].setVoltage(clampf(outR * 5.f, -7.f, 7.f));
+		float sentOutL = clampf(outL, -1.4f, 1.4f);
+		float sentOutR = clampf(outR, -1.4f, 1.4f);
+		outputs[OUT_L_OUTPUT].setVoltage(sentOutL * 5.f);
+		outputs[OUT_R_OUTPUT].setVoltage(sentOutR * 5.f);
+
+		// Feed the LCD from the real audio path at roughly 3 kHz. Each point is
+		// time-coherent across all five stages, so the display shows precisely
+		// what Bend/Break, Corrupt and Mix did to this sample. The audio thread
+		// publishes lock-free data; the UI never reads the circular audio buffer.
+		int scopeDecimation = std::max(1, (int)(sr / 3000.f));
+		if (++uiScopeCounter >= scopeDecimation) {
+			uiScopeCounter = 0;
+			BsScopeFrame frame;
+			frame.input = 0.5f * (inL + inR);
+			frame.aligned = 0.5f * (bufferedDry[0] + bufferedDry[1]);
+			frame.bentBroken = 0.5f * (bentBrokenL + bentBrokenR);
+			frame.corrupted = 0.5f * (wetL + wetR);
+			frame.output = 0.5f * (sentOutL + sentOutR);
+			uiScope.publish(frame);
+		}
 
 		// ---- LEDs ----
 		clkBlink = std::max(0.f, clkBlink - dt * 6.f);
@@ -851,94 +875,57 @@ struct CyanLight : GrayModuleLightWidget {
 	CyanLight() { addBaseColor(nvgRGB(0x35, 0xd3, 0xe0)); }
 };
 
-// ---------------------------------------------- reactive checksum display ----
-// A deliberately visible live data field. Bend displaces cyan fragments,
-// Break removes/repeats amber rows, and Corrupt injects red noise blocks.
-// The scan head and checksum keep moving even at zero damage and under Freeze.
-struct BsChecksumArt : TransparentWidget {
+// ------------------------------------------ real signal/data display ----
+// This is the active LCD renderer. It retains the broken-data visual language
+// of the original artwork, but every moving mark is derived from synchronized
+// samples published by the DSP above. There is no UI RNG or free-running phase.
+struct BsSignalDataArt : TransparentWidget {
 	BadSector* module = nullptr;
-	// Panel zone in mm — between the knob columns, above the mode buttons.
 	static constexpr float X0 = 28.5f, X1 = 52.8f, Y0 = 16.5f, Y1 = 49.5f;
-	float phase = 0.f;
 
-	static uint32_t hash(int a, int b, int t) {
-		uint32_t h = (uint32_t)(a * 73856093) ^ (uint32_t)(b * 19349663) ^ (uint32_t)(t * 83492791);
-		h ^= h >> 13; h *= 0x5bd1e995u; h ^= h >> 15;
-		return h;
-	}
-
-	void step() override {
-		TransparentWidget::step();
-		float dt = clampf(APP->window->getLastFrameDuration(), 0.f, 0.05f);
-		if (dt <= 0.f) dt = 1.f / 60.f;
-		phase += dt;
-		if (phase > 4096.f) phase -= 4096.f;
-	}
-
-	// Layer 1 is Rack's uncached live-display layer. Layer 0 is framebuffered
-	// after patch load and would turn this animation into a still image.
 	void drawLayer(const DrawArgs& args, int layer) override {
 		if (layer != 1) return;
 		NVGcontext* vg = args.vg;
 		float W = box.size.x, H = box.size.y;
 		if (W <= 1.f || H <= 1.f) return;
 
-		float bend = 0.18f, brk = 0.08f, corrupt = 0.04f, blink = 0.f;
-		float traverse = 0.f, clockPhase = std::fmod(phase * 0.5f, 1.f);
-		float subPhase = clockPhase, playSpeed = 1.f;
-		bool frozen = false, macro = true, microRev = false, reverse = false;
-		uint32_t tickSerial = (uint32_t)(phase * 0.5f);
-		int slices = 1;
-		float microOct = 0.f;
-		int divIdx = -1, corruptSel = 0;
-		if (module) {
-			bend = module->uiBend; brk = module->uiBreak; corrupt = module->uiCorrupt;
-			blink = module->clkBlink;
-			traverse = module->uiTravBlip;
-			clockPhase = module->uiClockPhase;
-			subPhase = module->uiSubPhase;
-			playSpeed = module->uiSpeed;
-			reverse = module->uiReverse;
-			tickSerial = module->uiTickSerial;
-			slices = module->uiSlices;
-			frozen = module->wasFreezeActive;
-			macro = module->macro;
-			microRev = module->uiMicroRev;
-			microOct = module->uiMicroOct;
-			divIdx = module->uiDivIdx; corruptSel = module->corruptSel;
+		std::array<BsScopeFrame, BS_SCOPE_POINTS> frames;
+		int count = module ? module->uiScope.snapshot(frames) : 0;
+		float bend = module ? clampf(module->uiBend, 0.f, 1.f) : 0.f;
+		float brk = module ? clampf(module->uiBreak, 0.f, 1.f) : 0.f;
+		float corrupt = module ? clampf(module->uiCorrupt, 0.f, 1.f) : 0.f;
+		float clockPhase = module ? clampf(module->uiClockPhase, 0.f, 0.999999f) : 0.f;
+		float subPhase = module ? clampf(module->uiSubPhase, 0.f, 0.999999f) : 0.f;
+		float traverse = module ? module->uiTravBlip : 0.f;
+		bool reverse = module && module->uiReverse;
+		bool frozen = module && module->wasFreezeActive;
+		int slices = module ? clamp(module->uiSlices, 1, 128) : 1;
+
+		float outSq = 0.f, peak = 0.f;
+		for (int i = 0; i < count; i++) {
+			outSq += frames[i].output * frames[i].output;
+			peak = std::max(peak, std::fabs(frames[i].output));
 		}
-		bend = clampf(bend, 0.f, 1.f);
-		brk = clampf(brk, 0.f, 1.f);
-		corrupt = clampf(corrupt, 0.f, 1.f);
-		clockPhase = clampf(clockPhase, 0.f, 0.999999f);
-		subPhase = clampf(subPhase, 0.f, 0.999999f);
-		playSpeed = clampf(std::fabs(playSpeed), 0.f, 8.f);
-		slices = clamp(slices, 1, 128);
-		int subIndex = clamp((int)(clockPhase * slices), 0, slices - 1);
-		int clockFrame = (int)(tickSerial & 0x7fffffffu);
-		int dataFrame = clockFrame * 131 + subIndex;
-		float playPhase = std::fmod(subPhase * std::max(0.08f, playSpeed), 1.f);
-		if (reverse) playPhase = 1.f - playPhase;
-		float total = clampf(bend * 0.5f + brk * 0.35f + corrupt * 0.45f, 0.f, 1.f);
+		float outRms = count > 0 ? std::sqrt(outSq / count) : 0.f;
+		uint16_t checksum = bsScopeChecksum(frames.data(), count);
+
 		float pad = mm2px(0.8f);
 		float headerH = mm2px(4.8f);
 		float bodyY = pad + headerH + mm2px(0.8f);
 		float bodyBottom = H - pad;
 		float bodyH = std::max(1.f, bodyBottom - bodyY);
+		float bodyW = W - 2.f * pad;
 
 		nvgSave(vg);
 		nvgScissor(vg, RECT_ARGS(args.clipBox));
 
-		// Dark glass makes the motion readable at every Rack zoom level.
+		// The same dark glass and effect-coloured frame as the previous design.
 		nvgBeginPath(vg);
 		nvgRoundedRect(vg, 0.5f, 0.5f, W - 1.f, H - 1.f, mm2px(1.f));
 		NVGpaint glass = nvgLinearGradient(vg, 0.f, 0.f, 0.f, H,
 			nvgRGBA(0x06, 0x0d, 0x12, 0xee), nvgRGBA(0x02, 0x05, 0x08, 0xf8));
 		nvgFillPaint(vg, glass);
 		nvgFill(vg);
-
-		// Keep the frame steady. All motion belongs inside the display so the
-		// surrounding panel controls never appear to shift or breathe.
 		NVGcolor edge = nvgRGBA(0x35, 0xd3, 0xe0, 0xa8);
 		if (corrupt > brk && corrupt > bend) edge = nvgRGBA(0xff, 0x38, 0x0a, 0xb8);
 		else if (brk > bend) edge = nvgRGBA(0xff, 0xa8, 0x15, 0xb0);
@@ -948,39 +935,42 @@ struct BsChecksumArt : TransparentWidget {
 		nvgStrokeWidth(vg, 1.1f);
 		nvgStroke(vg);
 
-		// Header/status strip.
+		// Header: the light is a real output level meter; the checksum is formed
+		// from the actual output samples currently visible on the LCD.
 		nvgBeginPath(vg);
-		nvgRoundedRect(vg, pad, pad, W - 2.f * pad, headerH, mm2px(0.55f));
+		nvgRoundedRect(vg, pad, pad, bodyW, headerH, mm2px(0.55f));
 		nvgFillColor(vg, nvgRGBA(0x0d, 0x18, 0x20, 0xf0));
 		nvgFill(vg);
-		float livePulse = 0.35f + 0.65f * clampf(blink, 0.f, 1.f);
 		float ledX = pad + mm2px(1.25f), ledY = pad + headerH * 0.5f;
+		float level = clampf(outRms * 3.f + peak * 0.35f, 0.f, 1.f);
 		NVGpaint halo = nvgRadialGradient(vg, ledX, ledY, 0.f, mm2px(1.4f),
-			nvgRGBA(0x35, 0xd3, 0xe0, (unsigned char)(0xa0 * livePulse)), nvgRGBA(0x35, 0xd3, 0xe0, 0x00));
+			nvgRGBA(0x35, 0xd3, 0xe0, (unsigned char)(0xb0 * level)),
+			nvgRGBA(0x35, 0xd3, 0xe0, 0x00));
 		nvgBeginPath(vg);
 		nvgCircle(vg, ledX, ledY, mm2px(1.4f));
 		nvgFillPaint(vg, halo);
 		nvgFill(vg);
 		nvgBeginPath(vg);
 		nvgCircle(vg, ledX, ledY, mm2px(0.42f));
-		nvgFillColor(vg, nvgRGBA(0x73, 0xf4, 0xff, 0xff));
+		nvgFillColor(vg, nvgRGBA(0x73, 0xf4, 0xff,
+			(unsigned char)(0x20 + level * 0xdf)));
 		nvgFill(vg);
 
-		std::shared_ptr<Font> font = APP->window->loadFont(asset::system("res/fonts/ShareTechMono-Regular.ttf"));
+		std::shared_ptr<Font> font = APP->window->loadFont(
+			asset::system("res/fonts/ShareTechMono-Regular.ttf"));
 		if (font) {
 			static const char* DIVS[9] = {"/16", "/8", "/4", "/2", "x1", "x2", "x3", "x4", "x8"};
 			static const char* FX[5] = {"DEC", "DRP", "DST", "DJF", "VYL"};
-			char txt[56];
-			int corruptFrame = dataFrame * 17 + (int)(clockPhase * (2.f + corrupt * 30.f));
-			uint32_t ck = hash(7, 9, dataFrame);
-			if (corrupt > 0.35f) ck ^= hash(3, 1, corruptFrame);
-			if (!macro) {
-				snprintf(txt, sizeof(txt), "MIC %+.1f%s %04X", microOct, microRev ? "R" : "", (unsigned)(ck & 0xFFFF));
-			}
-			else {
-				snprintf(txt, sizeof(txt), "%s %s %04X%s", divIdx < 0 ? "INT" : DIVS[divIdx],
-					FX[clamp(corruptSel, 0, 4)], (unsigned)(ck & 0xFFFF), frozen ? " F" : "");
-			}
+			char txt[64];
+			if (module && !module->macro)
+				snprintf(txt, sizeof(txt), "MIC %+.1f %04X%s", module->uiMicroOct,
+					(unsigned)checksum, reverse ? " R" : "");
+			else if (module)
+				snprintf(txt, sizeof(txt), "%s %s %04X%s",
+					module->uiDivIdx < 0 ? "INT" : DIVS[clamp(module->uiDivIdx, 0, 8)],
+					FX[clamp(module->corruptSel, 0, 4)], (unsigned)checksum, frozen ? " F" : "");
+			else
+				snprintf(txt, sizeof(txt), "NO DATA 0000");
 			nvgFontFaceId(vg, font->handle);
 			nvgFontSize(vg, mm2px(1.95f));
 			nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
@@ -988,112 +978,143 @@ struct BsChecksumArt : TransparentWidget {
 			nvgText(vg, W * 0.56f, ledY + 0.2f, txt, NULL);
 		}
 
-		// Stable tracks make the display visible even with every amount at zero.
+		// Stable packet lanes retain the previous data-field style. Nothing moves
+		// along them unless real samples or the real clock/read heads move.
 		const int rows = 13;
 		float rowH = bodyH / rows;
-		for (int r = 0; r < rows; r++) {
-			float y = bodyY + (r + 0.5f) * rowH;
-			uint32_t h = hash(r, 0, dataFrame);
+		for (int row = 0; row < rows; row++) {
+			float y = bodyY + (row + 0.5f) * rowH;
 			nvgBeginPath(vg);
-			nvgRect(vg, pad, y, W - 2.f * pad, std::max(0.55f, rowH * 0.10f));
+			nvgRect(vg, pad, y, bodyW, std::max(0.55f, rowH * 0.10f));
 			nvgFillColor(vg, nvgRGBA(0x24, 0x55, 0x60, 0x58));
 			nvgFill(vg);
-
-			// Break removes rows and occasionally repeats the adjacent row.
-			bool rowRepeated = false;
-			if (brk > 0.01f && (h & 0xFF) < brk * 105.f) {
-				if (((h >> 20) & 3) == 0) { y += rowH; rowRepeated = true; }
-				else continue;
-			}
-			float dx = std::sin(r * 0.72f + playPhase * 2.f * M_PI) * bend * mm2px(2.2f)
-			         + (((h >> 8) & 0xFF) / 255.f - 0.5f) * total * mm2px(2.5f);
-			int segs = 2 + ((h >> 16) & 3);
-			float x = pad + ((h >> 10) & 7) * mm2px(0.28f) + dx;
-			for (int sgi = 0; sgi < segs && x < W - pad; sgi++) {
-				uint32_t sh = hash(r, sgi + 1, dataFrame);
-				float w = mm2px(0.95f + (sh & 0x7) * (0.17f + total * 0.13f));
-				w = std::min(w, W - pad - x);
-				if (w <= 0.f) break;
-				bool bright = (sh & 0x300) <= 0x100;
-				nvgBeginPath(vg);
-				nvgRoundedRect(vg, x, y - rowH * 0.27f, w, std::max(1.f, rowH * (bright ? 0.50f : 0.36f)), 0.7f);
-				NVGcolor col = nvgRGBA(0x78, 0xe8, 0xf2, bright ? 0xff : 0xc8);
-				if (corrupt > 0.01f && ((sh >> 12) & 0xFF) < corrupt * 115.f)
-					col = nvgRGBA(0xff, 0x38, 0x0a, 0xe8);
-				else if (rowRepeated || (brk > 0.01f && ((sh >> 18) & 0xFF) < brk * 75.f))
-					col = nvgRGBA(0xff, 0xa8, 0x15, 0xdf);
-				else if (bend > 0.01f && ((sh >> 14) & 0xFF) < bend * 115.f)
-					col = nvgRGBA(0x26, 0xd9, 0xff, 0xe2);
-				nvgFillColor(vg, col);
-				nvgFill(vg);
-				x += w + mm2px(0.28f + ((sh >> 4) & 3) * 0.16f) * (1.f + total * 0.7f);
-			}
 		}
 
-		// Repeat and Break expose the actual clock grid as amber slice boundaries.
-		// At high audio-rate counts, cap the drawing density without changing DSP.
+		// Repeat/Break grid: exact active DSP subdivision count, capped only for
+		// legibility. These divisions reset with the same clock as the audio.
 		int shownSlices = std::min(slices, 16);
-		if (shownSlices > 1) {
-			for (int i = 1; i < shownSlices; i++) {
-				float gx = pad + (W - 2.f * pad) * i / shownSlices;
+		for (int i = 1; i < shownSlices; i++) {
+			float gx = pad + bodyW * i / shownSlices;
+			nvgBeginPath(vg);
+			nvgMoveTo(vg, gx, bodyY);
+			nvgLineTo(vg, gx, bodyBottom);
+			nvgStrokeColor(vg, nvgRGBA(0xff, 0xa8, 0x15,
+				(unsigned char)(0x28 + brk * 0x78)));
+			nvgStrokeWidth(vg, 0.75f);
+			nvgStroke(vg);
+		}
+
+		auto waveY = [&](float sample) {
+			return bodyY + bodyH * 0.5f - clampf(sample, -1.4f, 1.4f) * bodyH * 0.32f;
+		};
+		if (count > 1) {
+			// Actual sample packets. Their row is the quantized final output value;
+			// colour is chosen by the real stage that changed that sample most.
+			int columns = std::min(count, 72);
+			float cellW = bodyW / columns;
+			for (int col = 0; col < columns; col++) {
+				int index = col * (count - 1) / std::max(1, columns - 1);
+				const BsScopeFrame& f = frames[index];
+				float bendBreakDelta = std::fabs(f.bentBroken - f.aligned);
+				float corruptDelta = std::fabs(f.corrupted - f.bentBroken);
+				float activity = std::max(std::fabs(f.input), std::fabs(f.aligned));
+				activity = std::max(activity, std::fabs(f.bentBroken));
+				activity = std::max(activity, std::fabs(f.corrupted));
+				activity = std::max(activity, std::fabs(f.output));
+				activity = std::max(activity, std::max(bendBreakDelta, corruptDelta));
+				if (activity < 0.001f) continue;
+				float x = pad + col * cellW + cellW * 0.12f;
+				int row = clamp((int)((1.f - (clampf(f.output, -1.4f, 1.4f) / 1.4f + 1.f) * 0.5f) * rows), 0, rows - 1);
+				float y = bodyY + (row + 0.5f) * rowH;
+				NVGcolor color = nvgRGBA(0x78, 0xe8, 0xf2, 0xc8);
+				if (corruptDelta > 0.006f && corruptDelta >= bendBreakDelta)
+					color = nvgRGBA(0xff, 0x38, 0x0a, 0xe8);
+				else if (bendBreakDelta > 0.006f && brk >= bend)
+					color = nvgRGBA(0xff, 0xa8, 0x15, 0xdf);
+				else if (bendBreakDelta > 0.006f)
+					color = nvgRGBA(0x26, 0xd9, 0xff, 0xe2);
 				nvgBeginPath(vg);
-				nvgMoveTo(vg, gx, bodyY);
-				nvgLineTo(vg, gx, bodyBottom);
-				nvgStrokeColor(vg, nvgRGBA(0xff, 0xa8, 0x15,
-					(unsigned char)(0x28 + brk * 0x78)));
-				nvgStrokeWidth(vg, 0.75f);
+				nvgRoundedRect(vg, x, y - rowH * 0.28f,
+					std::max(1.f, cellW * 0.76f), std::max(1.f, rowH * 0.56f), 0.7f);
+				nvgFillColor(vg, color);
+				nvgFill(vg);
+
+				// The vertical split is the measured displacement introduced between
+				// aligned buffer, Bend/Break, and Corrupt at this exact sample.
+				if ((col & 1) == 0 && (bendBreakDelta > 0.003f || corruptDelta > 0.003f)) {
+					nvgBeginPath(vg);
+					nvgMoveTo(vg, x + cellW * 0.38f, waveY(f.aligned));
+					nvgLineTo(vg, x + cellW * 0.38f, waveY(f.bentBroken));
+					nvgStrokeColor(vg, brk >= bend ? nvgRGBA(0xff, 0xa8, 0x15, 0x88)
+						: nvgRGBA(0x26, 0xd9, 0xff, 0x88));
+					nvgStrokeWidth(vg, 1.f);
+					nvgStroke(vg);
+					nvgBeginPath(vg);
+					nvgMoveTo(vg, x + cellW * 0.38f, waveY(f.bentBroken));
+					nvgLineTo(vg, x + cellW * 0.38f, waveY(f.corrupted));
+					nvgStrokeColor(vg, nvgRGBA(0xff, 0x38, 0x0a, 0x98));
+					nvgStrokeWidth(vg, 1.f);
+					nvgStroke(vg);
+				}
+			}
+
+			// Five synchronized traces show the whole data path: live input,
+			// captured/aligned audio, Bend+Break, Corrupt, and the exact post-Mix
+			// output sent to the jacks.
+			auto drawTrace = [&](float BsScopeFrame::*field, NVGcolor color, float width) {
+				nvgBeginPath(vg);
+				for (int i = 0; i < count; i++) {
+					float x = pad + bodyW * i / (count - 1);
+					float y = waveY(frames[i].*field);
+					if (i == 0) nvgMoveTo(vg, x, y); else nvgLineTo(vg, x, y);
+				}
+				nvgStrokeColor(vg, color);
+				nvgStrokeWidth(vg, width);
 				nvgStroke(vg);
+			};
+			drawTrace(&BsScopeFrame::input, nvgRGBA(0x8c, 0x93, 0xa1, 0x4c), 0.6f);
+			drawTrace(&BsScopeFrame::aligned, nvgRGBA(0x72, 0x88, 0x90, 0x70), 0.75f);
+			drawTrace(&BsScopeFrame::bentBroken,
+				brk > bend ? nvgRGBA(0xff, 0xa8, 0x15, 0x94) : nvgRGBA(0x26, 0xd9, 0xff, 0x94), 0.9f);
+			if (corrupt > 0.001f)
+				drawTrace(&BsScopeFrame::corrupted, nvgRGBA(0xff, 0x38, 0x0a, 0xa8), 0.95f);
+			drawTrace(&BsScopeFrame::output, nvgRGBA(0x9b, 0xfb, 0xff, 0xe8), 1.15f);
+
+			// The packet is the low byte of the newest real output sample. Its bits
+			// travel at the exact read-window phase and reverse with playback.
+			float packetTravel = reverse ? 1.f - subPhase : subPhase;
+			float packetX = -mm2px(8.f) + packetTravel * (W + mm2px(16.f));
+			const BsScopeFrame& newest = frames[count - 1];
+			int packetByte = ((int)std::lround(clampf(newest.output, -1.f, 1.f) * 127.f)) & 0xff;
+			float packetY = waveY(newest.output);
+			float newestCorrupt = std::fabs(newest.corrupted - newest.bentBroken);
+			for (int bit = 0; bit < 8; bit++) {
+				bool high = (packetByte & (1 << bit)) != 0;
+				float cellX = packetX + bit * mm2px(1.7f);
+				nvgBeginPath(vg);
+				nvgRoundedRect(vg, cellX, packetY, mm2px(1.15f), mm2px(1.15f), 0.7f);
+				nvgFillColor(vg, newestCorrupt > 0.006f && bit == 5
+					? nvgRGBA(0xff, 0x54, 0x44, high ? 0xf4 : 0x54)
+					: nvgRGBA(0x9b, 0xfb, 0xff, high ? 0xf0 : 0x38));
+				nvgFill(vg);
 			}
 		}
 
-		// Large tracer blocks move independently of the hashed data so motion is
-		// obvious at small Rack zoom levels and with every damage amount at zero.
-		float traceSpan = W - 2.f * pad - mm2px(2.4f);
-		NVGcolor traceColors[5] = {
-			nvgRGBA(0x73, 0xf4, 0xff, 0xf4), nvgRGBA(0x26, 0xd9, 0xff, 0xea),
-			nvgRGBA(0xff, 0xc2, 0x3e, 0xe8), nvgRGBA(0x73, 0xf4, 0xff, 0xf0),
-			nvgRGBA(0xff, 0x54, 0x44, 0xe6)
-		};
-		for (int i = 0; i < 5; i++) {
-			float travel = std::fmod(playPhase + i * 0.173f, 1.f);
-			float tx = pad + travel * traceSpan;
-			int tr = (i * 3 + subIndex) % rows;
-			float ty = bodyY + (tr + 0.5f) * rowH;
-			nvgBeginPath(vg);
-			nvgRoundedRect(vg, tx, ty - rowH * 0.32f, mm2px(2.4f),
-				std::max(1.8f, rowH * 0.64f), 1.f);
-			nvgFillColor(vg, traceColors[i]);
-			nvgFill(vg);
-		}
-
-		// A broken data packet repeatedly crosses the whole field. Its separated
-		// cells remain legible at normal Rack zoom and make direction unmistakable.
-		float packetTravel = playPhase;
-		float packetX = -mm2px(8.f) + packetTravel * (W + mm2px(16.f));
-		float packetY = bodyY + bodyH * (0.28f + 0.18f * std::sin(clockPhase * 2.f * M_PI));
-		for (int i = 0; i < 7; i++) {
-			float cellX = packetX + i * mm2px(1.7f);
-			nvgBeginPath(vg);
-			nvgRoundedRect(vg, cellX, packetY, mm2px(1.15f), mm2px(1.15f), 0.7f);
-			nvgFillColor(vg, i == 5 ? nvgRGBA(0xff, 0x54, 0x44, 0xf4)
-				: nvgRGBA(0x9b, 0xfb, 0xff, 0xf0));
-			nvgFill(vg);
-		}
-
-		// The cyan head is the exact division phase; the red head is the current
-		// manipulated read phase. Their resets therefore land on the audio grid.
+		// Exact division and read-window heads. They share the DSP phases, so
+		// their resets cannot drift away from the audible repeat boundaries.
 		float scanY = bodyY + clockPhase * bodyH;
 		nvgBeginPath(vg);
-		nvgRect(vg, pad, scanY - mm2px(1.f), W - 2.f * pad, mm2px(2.f));
-		nvgFillColor(vg, nvgRGBA(0x35, 0xd3, 0xe0, 0x58));
+		nvgRect(vg, pad, scanY - mm2px(1.f), bodyW, mm2px(2.f));
+		nvgFillColor(vg, nvgRGBA(0x35, 0xd3, 0xe0, 0x42));
 		nvgFill(vg);
 		nvgBeginPath(vg);
 		nvgMoveTo(vg, pad, scanY);
 		nvgLineTo(vg, W - pad, scanY);
-		nvgStrokeColor(vg, traverse > 0.f ? nvgRGBA(0xff, 0xc2, 0x3e, 0xff) : nvgRGBA(0x73, 0xf4, 0xff, 0xf2));
-		nvgStrokeWidth(vg, 1.6f);
+		nvgStrokeColor(vg, traverse > 0.f ? nvgRGBA(0xff, 0xc2, 0x3e, 0xff)
+			: nvgRGBA(0x73, 0xf4, 0xff, 0xd8));
+		nvgStrokeWidth(vg, 1.4f);
 		nvgStroke(vg);
-		float scanX = pad + playPhase * (W - 2.f * pad);
+		float scanX = pad + (reverse ? 1.f - subPhase : subPhase) * bodyW;
 		nvgBeginPath(vg);
 		nvgMoveTo(vg, scanX, bodyY);
 		nvgLineTo(vg, scanX, bodyBottom);
@@ -1131,10 +1152,10 @@ struct BadSectorWidget : ModuleWidget {
 		addChild(createWidget<BsScrew>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<BsScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
-		BsChecksumArt* art = new BsChecksumArt();
-		art->box.pos = mm2px(Vec(BsChecksumArt::X0, BsChecksumArt::Y0));
-		art->box.size = mm2px(Vec(BsChecksumArt::X1 - BsChecksumArt::X0,
-			BsChecksumArt::Y1 - BsChecksumArt::Y0));
+		BsSignalDataArt* art = new BsSignalDataArt();
+		art->box.pos = mm2px(Vec(BsSignalDataArt::X0, BsSignalDataArt::Y0));
+		art->box.size = mm2px(Vec(BsSignalDataArt::X1 - BsSignalDataArt::X0,
+			BsSignalDataArt::Y1 - BsSignalDataArt::Y0));
 		art->module = module;
 		addChild(art);
 
@@ -1219,6 +1240,8 @@ struct BadSectorWidget : ModuleWidget {
 			m->recordedSamples = 0;
 			m->bufferPrimed = false;
 			m->bufferPrimedFade = 0.f;
+			m->uiScope.clear();
+			m->uiScopeCounter = 0;
 		}));
 		menu->addChild(createMenuItem("Restore default settings", "", [m]() { m->restoreDefaults(); }));
 	}
