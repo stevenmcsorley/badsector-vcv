@@ -12,6 +12,7 @@
 #include "BsGrid.hpp"
 #include "BsClock.hpp"
 #include "BsBend.hpp"
+#include "BsMix.hpp"
 #include <cmath>
 #include <vector>
 
@@ -152,7 +153,7 @@ struct BadSector : Module {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configParam(BUFFER_PARAM, 0.f, 1.f, 0.5f, "Time (16s .. 80Hz, or clock div/mult)");
 		configParam(REPEAT_PARAM, 0.f, 1.f, 0.f, "Repeat (musical subdivisions, up to audio rate)");
-		configParam(MIX_PARAM, 0.f, 1.f, 0.5f, "Mix (wet = the previous clock division)", "%", 0.f, 100.f);
+		configParam(MIX_PARAM, 0.f, 1.f, 0.5f, "Mix (latency-aligned above 10%)", "%", 0.f, 100.f);
 		configParam(DAMAGE_PARAM, 0.f, 1.f, 0.f, "Damage (selected channel: Bend/Break/Corrupt)");
 		configParam(CVAMT_PARAM, 0.f, 1.f, 0.75f, "CV amount (selected channel, bipolar)");
 		configParam(MICRO_PARAM, 0.f, 1.f, 0.5f, "Micro playback speed (+/-3 oct)");
@@ -623,6 +624,7 @@ struct BadSector : Module {
 			microOct += inputs[BEND_CV_INPUT].getVoltage();   // 1V/oct in Micro
 		float microSpeed = std::pow(2.f, clampf(microOct, -3.f, 3.f));
 		float wet[2] = {0.f, 0.f};
+		float bufferedDry[2] = {0.f, 0.f};
 		float subPhase[2] = {0.f, 0.f};
 		const std::vector<float>* channelBuf[2] = {&bufL, &bufR};
 		for (int c = 0; c < 2; c++) {
@@ -634,6 +636,10 @@ struct BadSector : Module {
 			// instead of holding the final window envelope at zero (the audible
 			// dropout that used to occur while turning TIME).
 			int gridT = bsGridPlaybackTime(elapsedT, sectionLen);
+			// Unprocessed audio from the same acquired division as the wet head.
+			// MIX uses this instead of live input after its short dry-end
+			// transition, removing the one-TIME-period double image at 50%.
+			bufferedDry[c] = readBuf(*channelBuf[c], sectionStart + (double) gridT);
 			int winIdx = 0;
 			// Resolve a pending Repeat change before deriving Bend's pattern,
 			// direction, speed, traverse position or envelope. The previous
@@ -724,13 +730,15 @@ struct BadSector : Module {
 		uiBreak = macro ? (breakEnabled ? breakN : 0.f) : breakN;
 		uiCorrupt = corruptN;
 
-		// Equal-power dry/wet keeps uncorrelated live and delayed-buffer audio
-		// from dipping through the middle of the mix travel.
+		// Percentage-linear mix. Above 10%, dry and wet both reference the same
+		// acquired division, so an unchanged buffer is unity gain at 50% rather
+		// than a live signal plus a one-division-late echo.
 		float mix = freezeMixWet ? 1.f : mixN;
-		float dryG = std::cos(mix * (float) M_PI * 0.5f);
-		float wetG = std::sin(mix * (float) M_PI * 0.5f);
-		outputs[OUT_L_OUTPUT].setVoltage(clampf((inL * dryG + wetL * wetG) * 5.f, -7.f, 7.f));
-		outputs[OUT_R_OUTPUT].setVoltage(clampf((inR * dryG + wetR * wetG) * 5.f, -7.f, 7.f));
+		BsMixGains mg = bsMixGains(mix);
+		float outL = inL * mg.liveDry + bufferedDry[0] * mg.bufferedDry + wetL * mg.wet;
+		float outR = inR * mg.liveDry + bufferedDry[1] * mg.bufferedDry + wetR * mg.wet;
+		outputs[OUT_L_OUTPUT].setVoltage(clampf(outL * 5.f, -7.f, 7.f));
+		outputs[OUT_R_OUTPUT].setVoltage(clampf(outR * 5.f, -7.f, 7.f));
 
 		// ---- LEDs ----
 		clkBlink = std::max(0.f, clkBlink - dt * 6.f);

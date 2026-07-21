@@ -12,8 +12,9 @@ tape failures, digital breakage and media corruption. Every division and Repeat 
 uses the same exact rational clock grid, so **playback stays locked no matter how slow,
 pitched, reversed or traversed it gets** — a simple melody comes out transformed without
 the stutter transients drifting away from the beat.
-(The wet path is therefore always one division behind the input; that inherent clocked
-delay is the price of the guarantee, and disappears with loop-based material.)
+(The wet path is therefore always one division behind the input. MIX latency-matches its
+dry side to that captured division above the bottom 10% of travel, preventing a live-plus-
+buffered slap at blended settings while leaving fully dry monitoring genuinely live.)
 
 ## Controls
 
@@ -25,7 +26,9 @@ delay is the price of the guarantee, and disappears with loop-based material.)
 - **REPEAT** — subdivides each division into *musical* stutter counts only (powers of two
   plus triplets, 1…1024). Rhythm lives in the first half of the travel; audio-rate buzz in
   the top stretch.
-- **MIX** — equal-power dry/wet. Wet = the previous clock division.
+- **MIX** — percentage-linear dry/wet. Wet is the previous clock division; through the
+  bottom 10% of travel the dry monitor moves smoothly from live input to that same captured
+  division. This keeps 50% Mix phase/time-aligned instead of sounding like a short echo.
 - **DAMAGE** — one knob, three independently stored channels, cycled by its square
   selector button: **Bend** (cyan), **Break** (amber), **Corrupt** (red-orange). Switching
   channels snaps the knob to that channel's stored value. The dot above the button shows
@@ -108,7 +111,7 @@ make
 make install
 ```
 
-Four unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
+Five unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
 `timing_test.cpp` validates the repeat grid — the same `BsGrid.hpp` arithmetic the module
 runs — against exact rational clock fractions: exact window counts, boundaries within one
 sample of the ideal fraction, and safe live Repeat changes, across sample rates and odd
@@ -117,6 +120,8 @@ loss, late edges, live ratio changes and Reset against the production `BsClock.h
 `selector_test.cpp` covers the three-channel virtual-knob snap recall used by the module.
 `bend_test.cpp` locks the cumulative manual zones, sparse early octave density, interval
 selection and top-of-range Everything ramp to the same `BsBend.hpp` policy used by DSP.
+`mix_test.cpp` verifies the live-to-buffered dry transition, unity-gain aligned blends and
+the exact fully-dry/fully-wet endpoints used by `BsMix.hpp`.
 
 ## License
 
