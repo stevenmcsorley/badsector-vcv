@@ -83,6 +83,9 @@ struct BadSector : Module {
 	int samplesSinceTick = 0;
 	int subsActive[2] = {-1, -1};
 	int lastWin[2] = {-1, -1};
+	int recordedSamples = 0;
+	bool bufferPrimed = false;
+	float bufferPrimedFade = 0.f;
 	float speed[2] = {1.f, 1.f};
 	float speedTarget[2] = {1.f, 1.f};
 	float speedSlew[2] = {0.f, 0.f};
@@ -187,6 +190,7 @@ struct BadSector : Module {
 		bufLen = (int)(sr * MAX_SECONDS);
 		bufL.assign(bufLen, 0.f); bufR.assign(bufLen, 0.f);
 		writeHead = 0; readPos[0] = readPos[1] = 0.f; sectionStart = 0;
+		recordedSamples = 0; bufferPrimed = false; bufferPrimedFade = 0.f;
 	}
 	void onSampleRateChange(const SampleRateChangeEvent& e) override {
 		if ((int)(e.sampleRate * MAX_SECONDS) != bufLen) alloc(e.sampleRate);
@@ -216,6 +220,7 @@ struct BadSector : Module {
 		curSub[0] = curSub[1] = 0;
 		samplesSinceTick = 0; subsActive[0] = subsActive[1] = -1;
 		lastWin[0] = lastWin[1] = -1;
+		recordedSamples = 0; bufferPrimed = false; bufferPrimedFade = 0.f;
 		restoreDefaults(); extClock = false; stereoWidth = 1.f;
 		internalPhase = 0.f; timeKnobSmooth = 0.5f; externalClock.reset();
 		freezeHead = 0; wasFreezeActive = false;
@@ -575,9 +580,10 @@ struct BadSector : Module {
 		}
 		bool momentaryFreeze = (freezeMomentary && freezeButtonHigh)
 			|| (gatesMomentary && freezeGateHigh);
-		bool freezeActive = frozen || momentaryFreeze;
+		bool freezeRequested = frozen || momentaryFreeze;
+		bool freezeActive = bsEffectiveFreeze(freezeRequested, bufferPrimed);
 		if (momentaryFreeze && mixN < 0.02f) freezeMixWet = true;
-		if (!freezeActive) freezeMixWet = false;
+		if (!freezeRequested) freezeMixWet = false;
 		if (freezeActive && !wasFreezeActive) freezeHead = writeHead;
 		wasFreezeActive = freezeActive;
 
@@ -598,6 +604,8 @@ struct BadSector : Module {
 				sectionStart = freezeHead - sectionLen;
 				while (sectionStart < 0) sectionStart += bufLen;
 			}
+			if (!bufferPrimed && bsBufferCaptureReady(recordedSamples, sectionLen))
+				bufferPrimed = true;
 			samplesSinceTick = 0;
 			curSub[0] = curSub[1] = 0;
 			readPos[0] = readPos[1] = sectionStart;
@@ -621,6 +629,7 @@ struct BadSector : Module {
 		if (!freezeActive) {
 			bufL[writeHead] = inL; bufR[writeHead] = inR;
 			if (++writeHead >= bufLen) writeHead = 0;
+			recordedSamples = std::min(recordedSamples + 1, bufLen);
 		}
 
 		// ---- playback ----
@@ -736,7 +745,9 @@ struct BadSector : Module {
 		// acquired division, so an unchanged buffer is unity gain at 50% rather
 		// than a live signal plus a one-division-late echo.
 		float mix = freezeMixWet ? 1.f : mixN;
-		BsMixGains mg = bsMixGains(mix);
+		float primeSlew = 1.f - std::exp(-dt / 0.02f);
+		bufferPrimedFade += ((bufferPrimed ? 1.f : 0.f) - bufferPrimedFade) * primeSlew;
+		BsMixGains mg = bsPrimedMixGains(mix, bufferPrimedFade);
 		float outL = inL * mg.liveDry + bufferedDry[0] * mg.bufferedDry + wetL * mg.wet;
 		float outR = inR * mg.liveDry + bufferedDry[1] * mg.bufferedDry + wetR * mg.wet;
 		outputs[OUT_L_OUTPUT].setVoltage(clampf(outL * 5.f, -7.f, 7.f));
@@ -1055,6 +1066,13 @@ struct BadSectorWidget : ModuleWidget {
 		menu->addChild(createMenuItem("Clear buffer", "", [m]() {
 			std::fill(m->bufL.begin(), m->bufL.end(), 0.f);
 			std::fill(m->bufR.begin(), m->bufR.end(), 0.f);
+			m->writeHead = 0;
+			m->readPos[0] = m->readPos[1] = 0.f;
+			m->sectionStart = 0;
+			m->samplesSinceTick = 0;
+			m->recordedSamples = 0;
+			m->bufferPrimed = false;
+			m->bufferPrimedFade = 0.f;
 		}));
 		menu->addChild(createMenuItem("Restore default settings", "", [m]() { m->restoreDefaults(); }));
 	}

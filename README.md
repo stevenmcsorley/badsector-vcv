@@ -14,7 +14,10 @@ pitched, reversed or traversed it gets** — a simple melody comes out transform
 the stutter transients drifting away from the beat.
 (The wet path is therefore always one division behind the input. MIX latency-matches its
 dry side to that captured division above the bottom 10% of travel, preventing a live-plus-
-buffered slap at blended settings while leaving fully dry monitoring genuinely live.)
+buffered slap at blended settings while leaving fully dry monitoring genuinely live.
+Because Rack does not save audio-buffer contents in patches, Bad Sector passes live audio
+while a newly loaded buffer records its first complete TIME window, then crossfades into
+the saved Mix; a saved Freeze request is deferred until that capture is safe.)
 
 ## Controls
 
@@ -125,8 +128,9 @@ loss, late edges, live ratio changes and Reset against the production `BsClock.h
 `selector_test.cpp` covers the three-channel virtual-knob snap recall used by the module.
 `bend_test.cpp` locks the cumulative manual zones, sparse early octave density, interval
 selection and top-of-range Everything ramp to the same `BsBend.hpp` policy used by DSP.
-`mix_test.cpp` verifies the live-to-buffered dry transition, unity-gain aligned blends and
-the exact fully-dry/fully-wet endpoints used by `BsMix.hpp`. `control_test.cpp` verifies
+`mix_test.cpp` verifies the live-to-buffered dry transition, unity-gain aligned blends,
+restart-safe buffer priming, deferred Freeze and the exact fully-dry/fully-wet endpoints
+used by `BsMix.hpp`. `control_test.cpp` verifies
 that every integer Repeat count is reachable plus the unipolar CV and mono-to-independent
 stereo endpoints used by the DSP.
 

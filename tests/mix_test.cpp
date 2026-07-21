@@ -37,6 +37,27 @@ int main() {
 	CHECK(near(g.liveDry, 0.f) && near(g.bufferedDry, 0.f) && near(g.wet, 1.f),
 	      "fully wet endpoint");
 
+	// A reloaded patch has no serialized audio history. Even at fully wet it
+	// must pass live audio until the first complete TIME window is available.
+	g = bsPrimedMixGains(1.f, 0.f);
+	CHECK(near(g.liveDry, 1.f) && near(g.bufferedDry, 0.f) && near(g.wet, 0.f),
+	      "empty startup buffer must not silence a fully-wet saved patch");
+	g = bsPrimedMixGains(1.f, 0.5f);
+	CHECK(near(g.liveDry, 0.5f) && near(g.bufferedDry, 0.f) && near(g.wet, 0.5f),
+	      "startup transition must crossfade live to wet smoothly");
+	g = bsPrimedMixGains(0.5f, 1.f);
+	CHECK(near(g.liveDry, 0.f) && near(g.bufferedDry, 0.5f) && near(g.wet, 0.5f),
+	      "primed startup must recover the requested latency-aligned Mix");
+
+	CHECK(!bsBufferCaptureReady(23999, 24000),
+	      "partial TIME history was accepted as a valid capture");
+	CHECK(bsBufferCaptureReady(24000, 24000),
+	      "complete TIME history did not prime the buffer");
+	CHECK(!bsEffectiveFreeze(true, false),
+	      "restored Freeze must not lock an empty buffer");
+	CHECK(bsEffectiveFreeze(true, true),
+	      "restored Freeze must engage after buffer priming");
+
 	for (int i = 0; i <= 1000; ++i) {
 		float mix = i / 1000.f;
 		g = bsMixGains(mix);
@@ -46,9 +67,19 @@ int main() {
 		      "gain sum %.6f at %.3f", g.liveDry + g.bufferedDry + g.wet, mix);
 		if (mix >= 0.1f)
 			CHECK(near(g.liveDry, 0.f), "live dry leaked above alignment range at %.3f", mix);
+
+		for (int j = 0; j <= 100; ++j) {
+			float primed = j / 100.f;
+			BsMixGains startup = bsPrimedMixGains(mix, primed);
+			CHECK(startup.liveDry >= 0.f && startup.bufferedDry >= 0.f && startup.wet >= 0.f,
+			      "negative startup gain at mix %.3f, prime %.2f", mix, primed);
+			CHECK(near(startup.liveDry + startup.bufferedDry + startup.wet, 1.f, 2e-5f),
+			      "startup gain sum %.6f at mix %.3f, prime %.2f",
+			      startup.liveDry + startup.bufferedDry + startup.wet, mix, primed);
+		}
 	}
 
 	if (!fails)
-		std::printf("ALL PASS: live dry endpoint, smooth alignment, unity 50%% blend, wet endpoint\n");
+		std::printf("ALL PASS: aligned Mix plus restart-safe buffer priming and deferred Freeze\n");
 	return fails ? 1 : 0;
 }
