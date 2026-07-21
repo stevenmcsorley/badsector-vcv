@@ -21,7 +21,7 @@
     },
     {
       "id": 4,
-      "value": 0.75
+      "value": 1.0
     },
     {
       "id": 5,
@@ -59,21 +59,22 @@
     "stereoUnique": true,
     "corruptSel": 0,
     "windowing": 0.15,
-    "stereoWidth": 0.0,
+    "stereoWidth": 1.0,
     "ledBrightness": 1.0,
     "gatesMomentary": false,
     "freezeMomentary": false,
     "originalCorruptOnly": false,
     "microInMacro": false,
+    "controlLawVersion": 1,
     "damageVals": [
       0.32,
       0.0,
       0.0
     ],
     "cvAmtVals": [
-      0.75,
-      0.75,
-      0.75
+      1.0,
+      1.0,
+      1.0
     ],
     "damageSel": 0,
     "cvAmtSel": 0

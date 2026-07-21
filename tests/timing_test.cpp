@@ -1,17 +1,18 @@
 // Grid-lock timing test — validates the REAL grid arithmetic (src/BsGrid.hpp,
 // the same functions the module calls) against exact rational clock fractions,
 // not against its own rounding:
-//   1. exact tiling: every musical repeat count x awkward section lengths
+//   1. exact tiling: representative integer repeat counts x awkward lengths
 //      (44.1k/48k/96k beats, odd/jittered lengths) -> exactly `subs`
 //      retriggers, each within one sample of the ideal fraction k*len/subs
 //   2. the named failure cases of the old floored-window model
 //   3. late clock edges and live mid-division Repeat changes (deterministic
 //      + 300 randomized):
-//      no back-to-back retriggers, every retrigger on the grid that fired it
+//      no back-to-back retriggers, every retrigger on the old or new grid
 //   4. teeth: the floored-window model and the no-re-grid change scheme and
 //      the content-wrap model all provably FAIL these assertions
 // Build & run:  g++ -std=c++11 timing_test.cpp -o timing_test && ./timing_test
 #include "../src/BsGrid.hpp"
+#include "../src/BsRepeat.hpp"
 #include <cstdio>
 #include <cstdint>
 #include <cmath>
@@ -23,9 +24,9 @@ static int fails = 0;
 static uint32_t rs = 0xC0FFEE;
 static float rf() { rs ^= rs << 13; rs ^= rs >> 17; rs ^= rs << 5; return (rs & 0xFFFFFF) / float(0x1000000); }
 
-// musical subdivision table (mirrors DB_RPT in BadSector.cpp)
-static const int RPT[20] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64,
-                            96, 128, 192, 256, 384, 512, 768, 1024};
+static const int COUNTS[25] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 16,
+                               31, 32, 48, 64, 96, 127, 128, 255, 512,
+                               777, 999, 1024};
 
 int main() {
 	// ---- 1. exact tiling across sample rates and awkward lengths ----
@@ -33,8 +34,8 @@ int main() {
 	                      96000, 22051, 33075, 18375, 12347};
 	for (int li = 0; li < 10; li++) {
 		int len = LENS[li];
-		for (int ri = 0; ri < 20; ri++) {
-			int subs = RPT[ri];
+		for (int ri = 0; ri < 25; ri++) {
+			int subs = COUNTS[ri];
 			if (subs > len / 4) continue;      // module clamps the same way
 			int lastWin = -1, retrigs = 0, prevT = -10;
 			for (int t = 0; t < len; t++) {
@@ -140,13 +141,30 @@ int main() {
 		      "2->4/24000: got %d retrigs (%d %d %d), want 0 12000 18000",
 		      nT, trail[0], trail[1], trail[2]);
 	}
-	// randomized: any musical count -> any other, at a random moment, in a
+	{
+		// The old active-boundary-only policy made 1 -> 10 wait until the end
+		// of the complete TIME division. It must now switch at 7200, the first
+		// requested-grid boundary after the change at 7001.
+		int len = 24000, changeAt = 7001;
+		int subsActive = 1, lastWin = -1, switchedAt = -1;
+		for (int t = 0; t < len; t++) {
+			int target = (t >= changeAt) ? 10 : 1;
+			int before = subsActive, w = 0;
+			if (bsGridAdvance(t, len, target, subsActive, lastWin, w)
+					&& before != subsActive)
+				switchedAt = t;
+		}
+		CHECK(switchedAt == 7200,
+		      "1->10/24000: switched at %d, want requested-grid boundary 7200", switchedAt);
+	}
+	// randomized: any integer count -> any other, at a random moment, in a
 	// random-length division. Every retrigger must land on a valid boundary
-	// of the grid that FIRED it, and never back-to-back.
+	// of either the active or requested grid, and never back-to-back.
 	for (int trial = 0; trial < 300; trial++) {
 		int len = 2000 + (int)(rf() * 94000.f);
-		int subsActive = RPT[(int)(rf() * 12.f)];
-		int newTarget = RPT[(int)(rf() * 12.f)];
+		int maxSubs = std::max(1, std::min(1024, len / 4));
+		int subsActive = 1 + (int)(rf() * maxSubs);
+		int newTarget = 1 + (int)(rf() * maxSubs);
 		int changeAt = (int)(rf() * len);
 		int lastWin = -1, prevT = -10;
 		for (int t = 0; t < len; t++) {
@@ -154,10 +172,12 @@ int main() {
 			int firingSubs = subsActive;
 			int w = 0;
 			if (bsGridAdvance(t, len, target, subsActive, lastWin, w)) {
-				CHECK(t == bsGridStart(bsGridIndex(t, len, firingSubs), len, firingSubs),
-				      "trial %d: retrigger %d not on its firing grid (subs %d)",
-				      trial, t, firingSubs);
-				CHECK(t - prevT > 1, "trial %d: adjacent retriggers %d,%d", trial, prevT, t);
+				CHECK(bsGridIsBoundary(t, len, firingSubs) || bsGridIsBoundary(t, len, target),
+				      "trial %d: retrigger %d on neither active %d nor target %d grid",
+				      trial, t, firingSubs, target);
+				CHECK(t - prevT > 1,
+				      "trial %d len %d change %d: adjacent retriggers %d,%d (active-before %d target %d active-after %d)",
+				      trial, len, changeAt, prevT, t, firingSubs, target, subsActive);
 				prevT = t;
 			}
 		}
@@ -209,8 +229,8 @@ int main() {
 	}
 
 	if (fails == 0)
-		printf("ALL PASS: exact rational grid — exact window counts, one-sample "
-		       "boundaries, safe live Repeat changes; all three broken models "
+		printf("ALL PASS: exact rational integer grid — exact window counts, "
+		       "responsive on-grid Repeat changes; all three broken models "
 		       "provably fail the same assertions\n");
 	else
 		printf("%d FAILURES\n", fails);

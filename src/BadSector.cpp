@@ -4,7 +4,7 @@
 // DAMAGE, CV AMT). DAMAGE is one knob editing three independently stored
 // values (Bend / Break / Corrupt) selected by an illuminated square button
 // by snapping the virtual knob to the selected value; CV AMT is the same
-// pattern for three bipolar CV attenuverters.
+// pattern for three unipolar CV attenuators.
 //
 // Layout constants mirror gen_panel.py — keep them in sync.
 #include "plugin.hpp"
@@ -13,16 +13,13 @@
 #include "BsClock.hpp"
 #include "BsBend.hpp"
 #include "BsMix.hpp"
+#include "BsRepeat.hpp"
+#include "BsControlLaws.hpp"
 #include <cmath>
 #include <vector>
 
 static inline float clampf(float x, float lo, float hi) { return x < lo ? lo : (x > hi ? hi : x); }
 static inline float lerpf(float a, float b, float t) { return a + (b - a) * t; }
-
-// musical subdivision counts (powers of two + triplets) — everything that
-// subdivides the clock picks from this table so stutters stay on the grid
-static const int DB_RPT[20] = {1, 2, 3, 4, 6, 8, 12, 16, 24, 32, 48, 64,
-                               96, 128, 192, 256, 384, 512, 768, 1024};
 
 // mode colours: Bend cyan / Break amber / Corrupt red-orange
 static const float SEL_COL[3][3] = {
@@ -93,7 +90,7 @@ struct BadSector : Module {
 
 	// the two shared three-channel editors
 	BsSelector damage;   // bend / break / corrupt amounts (0..1)
-	BsSelector cvAmt;    // bend / break / corrupt CV depth (0..1 -> -1..+1)
+	BsSelector cvAmt;    // bend / break / corrupt CV attenuation (0..1)
 
 	// state
 	int freezeHead = 0;
@@ -106,7 +103,7 @@ struct BadSector : Module {
 	bool microSilence = false;   // Traverse default
 	int corruptSel = 0;
 	float windowing = 0.02f;
-	float stereoWidth = 0.f;
+	float stereoWidth = 1.f;
 	bool stereoUnique = true;    // Data Bender default/restore = Unique
 	float ledBrightness = 1.f;
 	bool gatesMomentary = false;
@@ -152,10 +149,10 @@ struct BadSector : Module {
 	BadSector() {
 		config(PARAMS_LEN, INPUTS_LEN, OUTPUTS_LEN, LIGHTS_LEN);
 		configParam(BUFFER_PARAM, 0.f, 1.f, 0.5f, "Time (16s .. 80Hz, or clock div/mult)");
-		configParam(REPEAT_PARAM, 0.f, 1.f, 0.f, "Repeat (musical subdivisions, up to audio rate)");
+		configParam(REPEAT_PARAM, 0.f, 1.f, 0.f, "Repeat (integer subdivisions, up to audio rate)");
 		configParam(MIX_PARAM, 0.f, 1.f, 0.5f, "Mix (latency-aligned above 10%)", "%", 0.f, 100.f);
 		configParam(DAMAGE_PARAM, 0.f, 1.f, 0.f, "Damage (selected channel: Bend/Break/Corrupt)");
-		configParam(CVAMT_PARAM, 0.f, 1.f, 0.75f, "CV amount (selected channel, bipolar)");
+		configParam(CVAMT_PARAM, 0.f, 1.f, 1.f, "CV attenuation (selected channel)");
 		configParam(MICRO_PARAM, 0.f, 1.f, 0.5f, "Micro playback speed (+/-3 oct)");
 		configButton(DMGSEL_PARAM, "Damage channel (Bend/Break/Corrupt)");
 		configButton(CVSEL_PARAM, "CV amount channel (Bend/Break/Corrupt)");
@@ -181,7 +178,8 @@ struct BadSector : Module {
 		configBypass(IN_L_INPUT, OUT_L_OUTPUT);
 		configBypass(IN_R_INPUT, OUT_R_OUTPUT);
 		damage.reset(0.f, 0.f, 0.f);
-		cvAmt.reset(0.75f, 0.75f, 0.75f);
+		cvAmt.reset(1.f, 1.f, 1.f);
+		rng.seed(random::u32());
 		alloc(48000.f);
 	}
 
@@ -218,7 +216,7 @@ struct BadSector : Module {
 		curSub[0] = curSub[1] = 0;
 		samplesSinceTick = 0; subsActive[0] = subsActive[1] = -1;
 		lastWin[0] = lastWin[1] = -1;
-		restoreDefaults(); extClock = false; stereoWidth = 0.f;
+		restoreDefaults(); extClock = false; stereoWidth = 1.f;
 		internalPhase = 0.f; timeKnobSmooth = 0.5f; externalClock.reset();
 		freezeHead = 0; wasFreezeActive = false;
 		ledBrightness = 1.f;
@@ -226,7 +224,7 @@ struct BadSector : Module {
 		originalCorruptOnly = false; microInMacro = false;
 		freezeButtonWasHigh = false;
 		damage.reset(0.f, 0.f, 0.f);
-		cvAmt.reset(0.75f, 0.75f, 0.75f);
+		cvAmt.reset(1.f, 1.f, 1.f);
 		decHoldL = decHoldR = 0.f; decCount = 0;
 		dropEnv = 1.f; dropTimer = 0;
 		djL.reset(); djR.reset();
@@ -253,6 +251,7 @@ struct BadSector : Module {
 		json_object_set_new(r, "freezeMomentary", json_boolean(freezeMomentary));
 		json_object_set_new(r, "originalCorruptOnly", json_boolean(originalCorruptOnly));
 		json_object_set_new(r, "microInMacro", json_boolean(microInMacro));
+		json_object_set_new(r, "controlLawVersion", json_integer(1));
 		json_t* dv = json_array();
 		json_t* av = json_array();
 		for (int i = 0; i < 3; i++) {
@@ -283,18 +282,25 @@ struct BadSector : Module {
 		if (json_t* j = json_object_get(r, "stereoUnique")) stereoUnique = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "corruptSel")) corruptSel = clamp((int) json_integer_value(j), 0, 4);
 		if (json_t* j = json_object_get(r, "windowing")) windowing = (float) json_real_value(j);
-		if (json_t* j = json_object_get(r, "stereoWidth")) stereoWidth = (float) json_real_value(j);
+		if (json_t* j = json_object_get(r, "stereoWidth")) stereoWidth = clampf((float) json_real_value(j), 0.f, 1.f);
 		if (json_t* j = json_object_get(r, "ledBrightness")) ledBrightness = clampf((float) json_real_value(j), 0.05f, 1.f);
 		if (json_t* j = json_object_get(r, "gatesMomentary")) gatesMomentary = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "freezeMomentary")) freezeMomentary = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "originalCorruptOnly")) originalCorruptOnly = json_boolean_value(j);
 		if (json_t* j = json_object_get(r, "microInMacro")) microInMacro = json_boolean_value(j);
+		bool legacyControlLaws = !json_object_get(r, "controlLawVersion");
 		json_t* dv = json_object_get(r, "damageVals");
 		json_t* av = json_object_get(r, "cvAmtVals");
 		for (int i = 0; i < 3; i++) {
 			if (dv && json_array_size(dv) == 3) damage.vals[i] = (float) json_real_value(json_array_get(dv, i));
-			if (av && json_array_size(av) == 3) cvAmt.vals[i] = (float) json_real_value(json_array_get(av, i));
+			if (av && json_array_size(av) == 3) cvAmt.vals[i] = clampf((float) json_real_value(json_array_get(av, i)), 0.f, 1.f);
+			if (legacyControlLaws)
+				cvAmt.vals[i] = clampf(cvAmt.vals[i] * 2.f - 1.f, 0.f, 1.f);
 		}
+		// The previous control called zero width "unaltered stereo" and only
+		// widened from there. The hardware curve ends at unaltered stereo, so
+		// legacy patches migrate to that closest non-boosted endpoint.
+		if (legacyControlLaws) stereoWidth = 1.f;
 		if (json_t* j = json_object_get(r, "damageSel")) damage.sel = clamp((int) json_integer_value(j), 0, 2);
 		if (json_t* j = json_object_get(r, "cvAmtSel")) cvAmt.sel = clamp((int) json_integer_value(j), 0, 2);
 		if (originalCorruptOnly && corruptSel >= 3) corruptSel = 0;
@@ -395,7 +401,7 @@ struct BadSector : Module {
 
 	// Every clock division, Macro mode rolls new manipulations. Both Bend and
 	// Break use CUMULATIVE knob zones.
-	void rollMacro(float bendAmt, float breakAmt, int repeats, int repeatsIdx, bool bendEnabled, bool breakEnabled) {
+	void rollMacro(float bendAmt, float breakAmt, int repeats, bool bendEnabled, bool breakEnabled) {
 		int nCh = stereoUnique ? 2 : 1;
 		if (bendEnabled && bendAmt > 0.001f) {
 			// Manual model: ONE playback speed + direction decision per clock
@@ -426,13 +432,14 @@ struct BadSector : Module {
 			float top = clampf(breakAmt * 6.f - (z - 1), 0.f, 1.f);
 			auto za = [&](int k) { return (k < z) ? 1.f : (k == z ? top : 0.f); };
 			for (int c = 0; c < nCh; c++) {
-				// extra repeats always come from the musical table
+				// Extra repeats stay integer clock subdivisions, including counts
+				// such as the manual's explicit 10-repeat example.
 				int subs = std::max(1, repeats);
 				if (z >= 1 && rng.f() < za(1) * 0.5f) subs = std::max(subs, 2);
 				if (z >= 3 && rng.f() < za(3) * 0.6f)
-					subs = std::max(subs, DB_RPT[std::min(19, repeatsIdx + 1 + (int)(rng.f() * 4.f))]);
+					subs = std::max(subs, bsBreakMoreSubsections(repeats, rng.f()));
 				if (z >= 4 && rng.f() < za(4) * 0.5f)
-					subs = std::max(subs, DB_RPT[9 + (int)(rng.f() * 5.f)]);
+					subs = std::max(subs, bsBreakAudioRateSubsections(rng.f()));
 				if (z >= 2 && rng.f() < za(2) * 0.7f) curSub[c] = (int)(rng.f() * subs);
 				macroSilence[c] = (z >= 5) ? za(5) * 0.9f * rng.f() : 0.f;
 				breakSubs[c] = subs;
@@ -463,9 +470,9 @@ struct BadSector : Module {
 		damage.track(params[DAMAGE_PARAM].getValue());
 		cvAmt.track(params[CVAMT_PARAM].getValue());
 
-		// bipolar CV depths: knob 0..1 -> -1..+1, centre = zero modulation
+		// Hardware unipolar attenuation: CCW blocks CV, CW passes it fully.
 		float att[3];
-		for (int i = 0; i < 3; i++) att[i] = cvAmt.vals[i] * 2.f - 1.f;
+		for (int i = 0; i < 3; i++) att[i] = bsCvAttenuation(cvAmt.vals[i]);
 
 		// ---- effective control values ----
 		// A short slew on the manual control prevents abrupt acquisition-period
@@ -556,11 +563,9 @@ struct BadSector : Module {
 			uiDivIdx = -1;
 		}
 
-		// musical subdivision counts only, up into audio rate. The curve keeps
-		// rhythmic counts (1..16) in the first half of the travel and saves
-		// audio-rate for the top stretch — linear indexing hit buzz at noon.
-		int repeatsIdx = clamp((int) std::round(std::pow(repeatsN, 1.7f) * 19.f), 0, 19);
-		int repeats = DB_RPT[repeatsIdx];
+		// Every integer count is reachable. The exponential curve keeps useful
+		// low stutter counts in the first half and audio rate near the top.
+		int repeats = bsRepeatCount(repeatsN);
 
 		if (tick && freezeTogglePending) {
 			frozen = !frozen;
@@ -599,7 +604,7 @@ struct BadSector : Module {
 			tapeStop[0] = tapeStop[1] = 0.f;
 			lastWin[0] = lastWin[1] = -1;
 			subsActive[0] = subsActive[1] = -1;
-			if (macro) rollMacro(bendN, breakN, repeats, repeatsIdx, bendEnabled, breakEnabled);
+			if (macro) rollMacro(bendN, breakN, repeats, bendEnabled, breakEnabled);
 			clkBlink = 1.f;
 		}
 		// Saturation also makes the first external edge after a long wait use
@@ -715,10 +720,7 @@ struct BadSector : Module {
 		}
 		float wetL = wet[0], wetR = wet[1];
 
-		if (stereoWidth > 0.001f) {
-			float m = 0.5f * (wetL + wetR), s = 0.5f * (wetL - wetR) * (1.f + stereoWidth * 3.f);
-			wetL = m + s; wetR = m - s;
-		}
+		bsStereoEnhance(wetL, wetR, stereoWidth);
 
 		applyCorrupt(corruptEffect, corruptN, wetL, wetR, sr);
 
@@ -760,7 +762,7 @@ struct BadSector : Module {
 		}
 		// dots: the selected channel's stored value at a glance
 		setLed(DOT_DMG_LIGHT, 0.1f + 0.9f * damage.vals[damage.sel]);
-		setLed(DOT_CV_LIGHT, 0.1f + 0.9f * std::fabs(att[cvAmt.sel]));
+		setLed(DOT_CV_LIGHT, 0.1f + 0.9f * att[cvAmt.sel]);
 
 		setLed(MODE_LIGHT + 0, 0.f);
 		setLed(MODE_LIGHT + 1, macro ? 0.f : 1.f);
@@ -1048,7 +1050,7 @@ struct BadSectorWidget : ModuleWidget {
 			menu->addChild(s);
 		};
 		addSlider(&m->windowing, "Glitch windowing", 0.02f);
-		addSlider(&m->stereoWidth, "Stereo width", 0.f);
+		addSlider(&m->stereoWidth, "Stereo width", 1.f);
 		addSlider(&m->ledBrightness, "LED brightness", 1.f);
 		menu->addChild(createMenuItem("Clear buffer", "", [m]() {
 			std::fill(m->bufL.begin(), m->bufL.end(), 0.f);

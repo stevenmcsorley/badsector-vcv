@@ -23,9 +23,11 @@ buffered slap at blended settings while leaving fully dry monitoring genuinely l
   input (/16 /8 /4 /2 ×1 ×2 ×3 ×4 ×8), hard-locked to incoming edges, free-running at the
   last rate when the clock disappears. Accepts audio-rate clocks to ~1 kHz for
   frequency-locked tones.
-- **REPEAT** — subdivides each division into *musical* stutter counts only (powers of two
-  plus triplets, 1…1024). Rhythm lives in the first half of the travel; audio-rate buzz in
-  the top stretch.
+- **REPEAT** — subdivides each division into integer stutter counts from 1…1024, including
+  non-binary counts such as 5, 7 and 10. The exponential curve keeps useful rhythmic counts
+  in the first half of the travel and audio-rate buzz in the top stretch. Live changes take
+  effect on the next boundary of either the old or requested rational grid, so turning up
+  from one Repeat responds promptly without leaving the clock.
 - **MIX** — percentage-linear dry/wet. Wet is the previous clock division; through the
   bottom 10% of travel the dry monitor moves smoothly from live input to that same captured
   division. This keeps 50% Mix phase/time-aligned instead of sounding like a short echo.
@@ -40,16 +42,16 @@ buffered slap at blended settings while leaving fully dry monitoring genuinely l
     Everything span raises the likelihood of the full palette. No synthetic crackle is
     added to Bend; low windowing can still expose intentional hard-edge clicks at slice
     changes.
-  - **Break** — digital failures: subsection jumps, extra repeats (always from the musical
-    table), and up to 90 % silence per repeat at the top.
+  - **Break** — digital failures: subsection jumps, additional integer repeats above the
+    Repeat setting, audio-rate subdivisions, and up to 90 % silence per repeat at the top.
   - **Corrupt** — end-of-chain media damage: **Decimate** (fixed shuffled bit-crush,
     downsample, hiss and drive variations), **Dropout** (the left side of the *knob* gives
     fewer/longer random gaps; the right side gives more/shorter gaps), **Destroy** (soft
     saturation into devastation), **DJ Filter** (low-pass below noon, neutral at noon,
     high-pass above), and **Vinyl Sim** (dust, pops and colouring). The CRPT gate steps
     the effect; a context option limits the list to the original three.
-- **CV AMT** — the same three-channel pattern for **bipolar** CV attenuverters
-  (centre = no modulation) over the Bend/Break/Corrupt CV inputs.
+- **CV AMT** — the same three-channel pattern for unipolar CV attenuators over the
+  Bend/Break/Corrupt CV inputs: fully CCW blocks CV and fully CW passes it at full depth.
 - **MICRO** — manual playback speed, ±3 octaves. Active in Micro mode (and optionally as
   a global varispeed under Macro via the context menu).
 - **MODE / CLK / FRZ** — Macro/Micro, internal/external clock, and Freeze (latching by
@@ -68,6 +70,9 @@ subsection) or **Silence** (duty cycle, toggled by the BREAK gate). The display 
 speed with the hardware-style colour code — cyan on an exact octave, green reversed, gold
 reversed-on-octave — and blips gold when the traverse subsection changes. Selector
 channels that are inactive in the current mode dim to 25 %.
+
+The context-menu **Stereo width** follows the hardware enhancement law: fully CCW centres
+the wet buffer to mono, while fully CW preserves the original independent left/right image.
 
 ## Timing contract
 
@@ -111,7 +116,7 @@ make
 make install
 ```
 
-Five unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
+Six unit-test suites live in `tests/` (build each with `g++ -std=c++11 <file> -o test && ./test`):
 `timing_test.cpp` validates the repeat grid — the same `BsGrid.hpp` arithmetic the module
 runs — against exact rational clock fractions: exact window counts, boundaries within one
 sample of the ideal fraction, and safe live Repeat changes, across sample rates and odd
@@ -121,7 +126,9 @@ loss, late edges, live ratio changes and Reset against the production `BsClock.h
 `bend_test.cpp` locks the cumulative manual zones, sparse early octave density, interval
 selection and top-of-range Everything ramp to the same `BsBend.hpp` policy used by DSP.
 `mix_test.cpp` verifies the live-to-buffered dry transition, unity-gain aligned blends and
-the exact fully-dry/fully-wet endpoints used by `BsMix.hpp`.
+the exact fully-dry/fully-wet endpoints used by `BsMix.hpp`. `control_test.cpp` verifies
+that every integer Repeat count is reachable plus the unipolar CV and mono-to-independent
+stereo endpoints used by the DSP.
 
 ## License
 
