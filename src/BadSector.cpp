@@ -16,6 +16,7 @@
 #include "BsRepeat.hpp"
 #include "BsControlLaws.hpp"
 #include "BsDisplayTelemetry.hpp"
+#include "BsSignalSafety.hpp"
 #include <cmath>
 #include <vector>
 
@@ -324,10 +325,26 @@ struct BadSector : Module {
 	}
 
 	float readBuf(const std::vector<float>& b, double pos) {
+		if (!std::isfinite(pos) || bufLen < 2)
+			return 0.f;
 		pos -= std::floor(pos / bufLen) * bufLen;
 		int i0 = (int) pos; float fr = (float)(pos - i0);
 		int i1 = i0 + 1; if (i1 >= bufLen) i1 = 0;
-		return lerpf(b[i0], b[i1], fr);
+		return bsSanitizeAudio(lerpf(bsSanitizeAudio(b[i0]), bsSanitizeAudio(b[i1]), fr));
+	}
+
+	void resetInputSignalState() {
+		dcPrevInL = dcPrevInR = dcPrevOutL = dcPrevOutR = 0.f;
+	}
+
+	void resetCorruptSignalState() {
+		decHoldL = decHoldR = 0.f;
+		decCount = 0;
+		dropEnv = 1.f;
+		dropTimer = 0;
+		djL.reset();
+		djR.reset();
+		vinylLpL = vinylLpR = 0.f;
 	}
 
 	void applyCorrupt(int effect, float amt, float& l, float& r, float sr) {
@@ -632,11 +649,14 @@ struct BadSector : Module {
 		samplesSinceTick = std::min(samplesSinceTick + 1, bufLen);
 
 		// ---- write (background, always, unless frozen) ----
-		float rawInL = inputs[IN_L_INPUT].getVoltage() * 0.2f;
-		float rawInR = inputs[IN_R_INPUT].isConnected() ? inputs[IN_R_INPUT].getVoltage() * 0.2f : rawInL;
+		float rawInL = bsSanitizeAudio(inputs[IN_L_INPUT].getVoltage() * 0.2f);
+		float rawInR = inputs[IN_R_INPUT].isConnected()
+			? bsSanitizeAudio(inputs[IN_R_INPUT].getVoltage() * 0.2f) : rawInL;
+		if (!bsFiniteAudioState(dcPrevInL, dcPrevInR, dcPrevOutL, dcPrevOutR))
+			resetInputSignalState();
 		float dcPole = std::exp(-2.f * (float) M_PI * 5.f / sr);
-		float inL = rawInL - dcPrevInL + dcPole * dcPrevOutL;
-		float inR = rawInR - dcPrevInR + dcPole * dcPrevOutR;
+		float inL = bsSanitizeAudio(rawInL - dcPrevInL + dcPole * dcPrevOutL);
+		float inR = bsSanitizeAudio(rawInR - dcPrevInR + dcPole * dcPrevOutR);
 		dcPrevInL = rawInL; dcPrevInR = rawInR; dcPrevOutL = inL; dcPrevOutR = inR;
 		if (!freezeActive) {
 			bufL[writeHead] = inL; bufR[writeHead] = inR;
@@ -654,6 +674,12 @@ struct BadSector : Module {
 		float subPhase[2] = {0.f, 0.f};
 		const std::vector<float>* channelBuf[2] = {&bufL, &bufR};
 		for (int c = 0; c < 2; c++) {
+			if (!std::isfinite(readPos[c]) || !std::isfinite(speed[c])
+			    || !std::isfinite(speedTarget[c]) || !std::isfinite(speedSlew[c])) {
+				readPos[c] = sectionStart;
+				speed[c] = speedTarget[c] = 1.f;
+				speedSlew[c] = 0.f;
+			}
 			int target = std::max(1, macro && breakSubs[c] > 0 ? breakSubs[c] : repeats);
 			target = clamp(target, 1, std::max(1, sectionLen / 4));
 			int elapsedT = samplesSinceTick - 1;
@@ -745,6 +771,12 @@ struct BadSector : Module {
 		float bentBrokenL = wetL, bentBrokenR = wetR;
 
 		applyCorrupt(corruptEffect, corruptN, wetL, wetR, sr);
+		if (!std::isfinite(wetL) || !std::isfinite(wetR)) {
+			// Stateful corrupt filters used to remain NaN forever after one bad
+			// upstream sample. Recover immediately without resetting musical state.
+			wetL = wetR = 0.f;
+			resetCorruptSignalState();
+		}
 
 		// telemetry for the reactive artwork
 		uiMicroOct = microOct;
@@ -765,8 +797,8 @@ struct BadSector : Module {
 		float primeSlew = 1.f - std::exp(-dt / 0.02f);
 		bufferPrimedFade += ((bufferPrimed ? 1.f : 0.f) - bufferPrimedFade) * primeSlew;
 		BsMixGains mg = bsPrimedMixGains(mix, bufferPrimedFade);
-		float outL = inL * mg.liveDry + bufferedDry[0] * mg.bufferedDry + wetL * mg.wet;
-		float outR = inR * mg.liveDry + bufferedDry[1] * mg.bufferedDry + wetR * mg.wet;
+		float outL = bsSanitizeAudio(inL * mg.liveDry + bufferedDry[0] * mg.bufferedDry + wetL * mg.wet);
+		float outR = bsSanitizeAudio(inR * mg.liveDry + bufferedDry[1] * mg.bufferedDry + wetR * mg.wet);
 		float sentOutL = clampf(outL, -1.4f, 1.4f);
 		float sentOutR = clampf(outR, -1.4f, 1.4f);
 		outputs[OUT_L_OUTPUT].setVoltage(sentOutL * 5.f);
