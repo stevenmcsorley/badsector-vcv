@@ -856,7 +856,11 @@ struct BsChecksumArt : TransparentWidget {
 		return h;
 	}
 
-	void draw(const DrawArgs& args) override {
+	// Rack caches a module's layer 0 in RackWidget's framebuffer once a loaded
+	// patch settles. Animated displays must use layer 1 or a restored module is
+	// captured as a still image until deleting/re-adding it dirties the cache.
+	void drawLayer(const DrawArgs& args, int layer) override {
+		if (layer != 1) return;
 		NVGcontext* vg = args.vg;
 		float dt = clampf(APP->window->getLastFrameDuration(), 0.f, 0.05f);
 		if (dt <= 0.f) dt = 1.f / 60.f;
