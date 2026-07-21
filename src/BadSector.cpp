@@ -142,7 +142,11 @@ struct BadSector : Module {
 	// telemetry for the reactive checksum artwork
 	float uiBend = 0.f, uiBreak = 0.f, uiCorrupt = 0.f;
 	float uiMicroOct = 0.f, uiTravBlip = 0.f;
+	float uiClockPhase = 0.f, uiSubPhase = 0.f, uiSpeed = 1.f;
 	bool uiMicroRev = false;
+	bool uiReverse = false;
+	uint32_t uiTickSerial = 0;
+	int uiSlices = 1;
 	int uiDivIdx = -1;   // -1 = internal clock
 
 	DbRng rng;
@@ -567,6 +571,9 @@ struct BadSector : Module {
 			if (internalPhase >= 1.f) { internalPhase -= std::floor(internalPhase); tick = true; }
 			uiDivIdx = -1;
 		}
+		if (tick) uiTickSerial++;
+		uiClockPhase = std::fmod((float)(extClock ? externalClock.phase : internalPhase), 1.f);
+		if (uiClockPhase < 0.f) uiClockPhase += 1.f;
 
 		// Every integer count is reachable. The exponential curve keeps useful
 		// low stutter counts in the first half and audio rate near the top.
@@ -737,6 +744,10 @@ struct BadSector : Module {
 		uiMicroOct = microOct;
 		uiMicroRev = reverseEnabled;
 		uiTravBlip = std::max(0.f, uiTravBlip - dt * 4.f);
+		uiSubPhase = subPhase[0];
+		uiSpeed = speed[0];
+		uiReverse = revNow[0];
+		uiSlices = std::max(1, subsActive[0]);
 		uiBend = macro ? (bendEnabled ? bendN : 0.f) : std::fabs(microOct) / 3.f;
 		uiBreak = macro ? (breakEnabled ? breakN : 0.f) : breakN;
 		uiCorrupt = corruptN;
@@ -840,14 +851,14 @@ struct CyanLight : GrayModuleLightWidget {
 	CyanLight() { addBaseColor(nvgRGB(0x35, 0xd3, 0xe0)); }
 };
 
-// ---------------------------------------------- reactive checksum artwork ----
-// Low DAMAGE: mostly intact data lines. Bend: horizontal displacement.
-// Break: missing/repeated sections. Corrupt: noise blocks + unstable
-// checksum characters. Subtle by design — labels stay readable.
+// ---------------------------------------------- reactive checksum display ----
+// A deliberately visible live data field. Bend displaces cyan fragments,
+// Break removes/repeats amber rows, and Corrupt injects red noise blocks.
+// The scan head and checksum keep moving even at zero damage and under Freeze.
 struct BsChecksumArt : TransparentWidget {
 	BadSector* module = nullptr;
-	// zone in mm — between the knob columns, above the mode buttons
-	static constexpr float X0 = 28.5f, X1 = 52.8f, Y0 = 16.5f, Y1 = 51.0f;
+	// Panel zone in mm — between the knob columns, above the mode buttons.
+	static constexpr float X0 = 28.5f, X1 = 52.8f, Y0 = 16.5f, Y1 = 49.5f;
 	float phase = 0.f;
 
 	static uint32_t hash(int a, int b, int t) {
@@ -856,112 +867,241 @@ struct BsChecksumArt : TransparentWidget {
 		return h;
 	}
 
-	// Rack caches a module's layer 0 in RackWidget's framebuffer once a loaded
-	// patch settles. Animated displays must use layer 1 or a restored module is
-	// captured as a still image until deleting/re-adding it dirties the cache.
+	void step() override {
+		TransparentWidget::step();
+		float dt = clampf(APP->window->getLastFrameDuration(), 0.f, 0.05f);
+		if (dt <= 0.f) dt = 1.f / 60.f;
+		phase += dt;
+		if (phase > 4096.f) phase -= 4096.f;
+	}
+
+	// Layer 1 is Rack's uncached live-display layer. Layer 0 is framebuffered
+	// after patch load and would turn this animation into a still image.
 	void drawLayer(const DrawArgs& args, int layer) override {
 		if (layer != 1) return;
 		NVGcontext* vg = args.vg;
-		float dt = clampf(APP->window->getLastFrameDuration(), 0.f, 0.05f);
-		if (dt <= 0.f) dt = 1.f / 60.f;
+		float W = box.size.x, H = box.size.y;
+		if (W <= 1.f || H <= 1.f) return;
 
-		float bend = 0.15f, brk = 0.1f, corrupt = 0.05f, blink = 0.f;
+		float bend = 0.18f, brk = 0.08f, corrupt = 0.04f, blink = 0.f;
+		float traverse = 0.f, clockPhase = std::fmod(phase * 0.5f, 1.f);
+		float subPhase = clockPhase, playSpeed = 1.f;
+		bool frozen = false, macro = true, microRev = false, reverse = false;
+		uint32_t tickSerial = (uint32_t)(phase * 0.5f);
+		int slices = 1;
+		float microOct = 0.f;
 		int divIdx = -1, corruptSel = 0;
 		if (module) {
 			bend = module->uiBend; brk = module->uiBreak; corrupt = module->uiCorrupt;
 			blink = module->clkBlink;
+			traverse = module->uiTravBlip;
+			clockPhase = module->uiClockPhase;
+			subPhase = module->uiSubPhase;
+			playSpeed = module->uiSpeed;
+			reverse = module->uiReverse;
+			tickSerial = module->uiTickSerial;
+			slices = module->uiSlices;
+			frozen = module->wasFreezeActive;
+			macro = module->macro;
+			microRev = module->uiMicroRev;
+			microOct = module->uiMicroOct;
 			divIdx = module->uiDivIdx; corruptSel = module->corruptSel;
 		}
-		// Freeze holds audio memory, not the interface. Keep the checksum field
-		// visibly alive so a restored frozen patch never looks stalled or dead.
-		phase += dt;
-		int slowT = (int)(phase * 3.f);
+		bend = clampf(bend, 0.f, 1.f);
+		brk = clampf(brk, 0.f, 1.f);
+		corrupt = clampf(corrupt, 0.f, 1.f);
+		clockPhase = clampf(clockPhase, 0.f, 0.999999f);
+		subPhase = clampf(subPhase, 0.f, 0.999999f);
+		playSpeed = clampf(std::fabs(playSpeed), 0.f, 8.f);
+		slices = clamp(slices, 1, 128);
+		int subIndex = clamp((int)(clockPhase * slices), 0, slices - 1);
+		int clockFrame = (int)(tickSerial & 0x7fffffffu);
+		int dataFrame = clockFrame * 131 + subIndex;
+		float playPhase = std::fmod(subPhase * std::max(0.08f, playSpeed), 1.f);
+		if (reverse) playPhase = 1.f - playPhase;
 		float total = clampf(bend * 0.5f + brk * 0.35f + corrupt * 0.45f, 0.f, 1.f);
+		float pad = mm2px(0.8f);
+		float headerH = mm2px(4.8f);
+		float bodyY = pad + headerH + mm2px(0.8f);
+		float bodyBottom = H - pad;
+		float bodyH = std::max(1.f, bodyBottom - bodyY);
 
-		NVGcolor ink = nvgRGBA(0xec, 0xe8, 0xdd, (unsigned char)(0x52 + blink * 0x30));
-		// each damage channel paints in its selector colour:
-		// Bend cyan / Break amber / Corrupt red-orange
-		NVGcolor bendC = nvgRGBA(0x26, 0xd9, 0xff, 0xb4);
-		NVGcolor breakC = nvgRGBA(0xff, 0xa8, 0x15, 0xb4);
-		NVGcolor corruptC = nvgRGBA(0xff, 0x38, 0x0a, 0xbc);
+		nvgSave(vg);
+		nvgScissor(vg, RECT_ARGS(args.clipBox));
 
-		float rowH = 1.55f;
-		int rows = (int)((Y1 - Y0 - 4.f) / rowH);
-		for (int r = 0; r < rows; r++) {
-			float y = Y0 + 4.f + r * rowH;
-			uint32_t h = hash(r, 0, slowT);
-			// Break: missing rows, occasionally a repeated (shifted) row
-			bool rowRepeated = false;
-			if (brk > 0.01f && (h & 0xFF) < brk * 120.f) {
-				if (((h >> 20) & 3) == 0) { y = Y0 + 4.f + ((r + 1) % rows) * rowH; rowRepeated = true; }
-				else continue;                                                     // missing
-			}
-			// Bend: horizontal displacement, wavier as bend rises
-			float dx = std::sin(y * 0.35f + phase * 0.8f) * bend * 5.f
-			         + (((h >> 8) & 0xFF) / 255.f - 0.5f) * total * 6.f;
-			// data line: a few segments per row
-			int segs = 1 + ((h >> 16) & 3);
-			float x = X0 + 1.f + ((h >> 10) & 7) * 0.7f + dx;
-			for (int sgi = 0; sgi < segs && x < X1 - 2.f; sgi++) {
-				uint32_t sh = hash(r, sgi + 1, slowT);
-				float w = 1.2f + (sh & 0xF) * (0.32f + total * 0.25f);
-				w = std::min(w, X1 - 1.f - x);
-				if (w <= 0.f) break;
-				bool bright = (sh & 0x300) == 0;
-				nvgBeginPath(vg);
-				nvgRect(vg, mm2px(x), mm2px(y), mm2px(w), mm2px(0.62f + (bright ? 0.2f : 0.f)));
-				// channel colours: corrupt red-orange noise blocks, break amber
-				// on repeated/broken rows, bend cyan on displaced fragments
-				NVGcolor col = ink;
-				if (corrupt > 0.01f && ((sh >> 12) & 0xFF) < corrupt * 90.f)
-					col = corruptC;
-				else if (rowRepeated || (brk > 0.01f && ((sh >> 18) & 0xFF) < brk * 45.f))
-					col = breakC;
-				else if (bend > 0.01f && ((sh >> 14) & 0xFF) < bend * 60.f)
-					col = bendC;
-				else if (bright) col = nvgRGBA(0xec, 0xe8, 0xdd, 0x92);
-				nvgFillColor(vg, col);
-				nvgFill(vg);
-				x += w + 0.8f + ((sh >> 4) & 7) * 0.55f * (1.f + total);
-			}
-		}
+		// Dark glass makes the motion readable at every Rack zoom level.
+		nvgBeginPath(vg);
+		nvgRoundedRect(vg, 0.5f, 0.5f, W - 1.f, H - 1.f, mm2px(1.f));
+		NVGpaint glass = nvgLinearGradient(vg, 0.f, 0.f, 0.f, H,
+			nvgRGBA(0x06, 0x0d, 0x12, 0xee), nvgRGBA(0x02, 0x05, 0x08, 0xf8));
+		nvgFillPaint(vg, glass);
+		nvgFill(vg);
 
-		// status line: clock division + corrupt effect as a live "checksum"
+		// Keep the frame steady. All motion belongs inside the display so the
+		// surrounding panel controls never appear to shift or breathe.
+		NVGcolor edge = nvgRGBA(0x35, 0xd3, 0xe0, 0xa8);
+		if (corrupt > brk && corrupt > bend) edge = nvgRGBA(0xff, 0x38, 0x0a, 0xb8);
+		else if (brk > bend) edge = nvgRGBA(0xff, 0xa8, 0x15, 0xb0);
+		nvgBeginPath(vg);
+		nvgRoundedRect(vg, 0.5f, 0.5f, W - 1.f, H - 1.f, mm2px(1.f));
+		nvgStrokeColor(vg, edge);
+		nvgStrokeWidth(vg, 1.1f);
+		nvgStroke(vg);
+
+		// Header/status strip.
+		nvgBeginPath(vg);
+		nvgRoundedRect(vg, pad, pad, W - 2.f * pad, headerH, mm2px(0.55f));
+		nvgFillColor(vg, nvgRGBA(0x0d, 0x18, 0x20, 0xf0));
+		nvgFill(vg);
+		float livePulse = 0.35f + 0.65f * clampf(blink, 0.f, 1.f);
+		float ledX = pad + mm2px(1.25f), ledY = pad + headerH * 0.5f;
+		NVGpaint halo = nvgRadialGradient(vg, ledX, ledY, 0.f, mm2px(1.4f),
+			nvgRGBA(0x35, 0xd3, 0xe0, (unsigned char)(0xa0 * livePulse)), nvgRGBA(0x35, 0xd3, 0xe0, 0x00));
+		nvgBeginPath(vg);
+		nvgCircle(vg, ledX, ledY, mm2px(1.4f));
+		nvgFillPaint(vg, halo);
+		nvgFill(vg);
+		nvgBeginPath(vg);
+		nvgCircle(vg, ledX, ledY, mm2px(0.42f));
+		nvgFillColor(vg, nvgRGBA(0x73, 0xf4, 0xff, 0xff));
+		nvgFill(vg);
+
 		std::shared_ptr<Font> font = APP->window->loadFont(asset::system("res/fonts/ShareTechMono-Regular.ttf"));
 		if (font) {
 			static const char* DIVS[9] = {"/16", "/8", "/4", "/2", "x1", "x2", "x3", "x4", "x8"};
 			static const char* FX[5] = {"DEC", "DRP", "DST", "DJF", "VYL"};
-			char txt[48];
-			uint32_t ck = hash(7, 9, slowT);
-			if (corrupt > 0.4f) ck ^= hash(3, 1, (int)(phase * 17.f));   // unstable checksum
-			snprintf(txt, sizeof(txt), "%s %s %04X", divIdx < 0 ? "INT" : DIVS[divIdx],
-			         FX[corruptSel], (unsigned)(ck & 0xFFFF));
+			char txt[56];
+			int corruptFrame = dataFrame * 17 + (int)(clockPhase * (2.f + corrupt * 30.f));
+			uint32_t ck = hash(7, 9, dataFrame);
+			if (corrupt > 0.35f) ck ^= hash(3, 1, corruptFrame);
+			if (!macro) {
+				snprintf(txt, sizeof(txt), "MIC %+.1f%s %04X", microOct, microRev ? "R" : "", (unsigned)(ck & 0xFFFF));
+			}
+			else {
+				snprintf(txt, sizeof(txt), "%s %s %04X%s", divIdx < 0 ? "INT" : DIVS[divIdx],
+					FX[clamp(corruptSel, 0, 4)], (unsigned)(ck & 0xFFFF), frozen ? " F" : "");
+			}
 			nvgFontFaceId(vg, font->handle);
-			nvgFontSize(vg, mm2px(1.9f));
-			nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-			// hardware Break LED behaviour: gold blip when the traverse
-			// subsection changes
-			float tb = module ? module->uiTravBlip : 0.f;
-			NVGcolor stat = (tb > 0.f)
-				? nvgRGBA(0xff, (unsigned char)(0xc2 - 0x36 * (1.f - tb)), 0x3e, 0xd8)
-				: nvgRGBA(0xff, 0x24, 0x38, 0xd4);   // neon red readout
-			nvgFillColor(vg, stat);
-			nvgText(vg, mm2px((X0 + X1) * 0.5f), mm2px(Y0), txt, NULL);
-			// hardware Micro Bend LED colours, relocated: blue forward, cyan
-			// on an exact octave, green reversed, gold reversed-on-octave
-			if (module && !module->macro) {
-				float oct = module->uiMicroOct;
-				bool rev = module->uiMicroRev;
-				bool onOct = std::fabs(oct - std::round(oct)) < 0.03f;
-				NVGcolor mc = rev ? (onOct ? nvgRGB(0xff, 0xc2, 0x3e) : nvgRGB(0x3f, 0xe0, 0x63))
-				                  : (onOct ? nvgRGB(0x35, 0xd3, 0xe0) : nvgRGB(0x5a, 0x8d, 0xff));
-				char mtxt[24];
-				snprintf(mtxt, sizeof(mtxt), "M%+.2f%s", oct, rev ? "R" : "");
-				nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_TOP);
-				nvgFillColor(vg, mc);
-				nvgText(vg, mm2px(X1 - 0.6f), mm2px(Y0 + 2.6f), mtxt, NULL);
+			nvgFontSize(vg, mm2px(1.95f));
+			nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+			nvgFillColor(vg, nvgRGBA(0xff, 0x54, 0x44, 0xf0));
+			nvgText(vg, W * 0.56f, ledY + 0.2f, txt, NULL);
+		}
+
+		// Stable tracks make the display visible even with every amount at zero.
+		const int rows = 13;
+		float rowH = bodyH / rows;
+		for (int r = 0; r < rows; r++) {
+			float y = bodyY + (r + 0.5f) * rowH;
+			uint32_t h = hash(r, 0, dataFrame);
+			nvgBeginPath(vg);
+			nvgRect(vg, pad, y, W - 2.f * pad, std::max(0.55f, rowH * 0.10f));
+			nvgFillColor(vg, nvgRGBA(0x24, 0x55, 0x60, 0x58));
+			nvgFill(vg);
+
+			// Break removes rows and occasionally repeats the adjacent row.
+			bool rowRepeated = false;
+			if (brk > 0.01f && (h & 0xFF) < brk * 105.f) {
+				if (((h >> 20) & 3) == 0) { y += rowH; rowRepeated = true; }
+				else continue;
+			}
+			float dx = std::sin(r * 0.72f + playPhase * 2.f * M_PI) * bend * mm2px(2.2f)
+			         + (((h >> 8) & 0xFF) / 255.f - 0.5f) * total * mm2px(2.5f);
+			int segs = 2 + ((h >> 16) & 3);
+			float x = pad + ((h >> 10) & 7) * mm2px(0.28f) + dx;
+			for (int sgi = 0; sgi < segs && x < W - pad; sgi++) {
+				uint32_t sh = hash(r, sgi + 1, dataFrame);
+				float w = mm2px(0.95f + (sh & 0x7) * (0.17f + total * 0.13f));
+				w = std::min(w, W - pad - x);
+				if (w <= 0.f) break;
+				bool bright = (sh & 0x300) <= 0x100;
+				nvgBeginPath(vg);
+				nvgRoundedRect(vg, x, y - rowH * 0.27f, w, std::max(1.f, rowH * (bright ? 0.50f : 0.36f)), 0.7f);
+				NVGcolor col = nvgRGBA(0x78, 0xe8, 0xf2, bright ? 0xff : 0xc8);
+				if (corrupt > 0.01f && ((sh >> 12) & 0xFF) < corrupt * 115.f)
+					col = nvgRGBA(0xff, 0x38, 0x0a, 0xe8);
+				else if (rowRepeated || (brk > 0.01f && ((sh >> 18) & 0xFF) < brk * 75.f))
+					col = nvgRGBA(0xff, 0xa8, 0x15, 0xdf);
+				else if (bend > 0.01f && ((sh >> 14) & 0xFF) < bend * 115.f)
+					col = nvgRGBA(0x26, 0xd9, 0xff, 0xe2);
+				nvgFillColor(vg, col);
+				nvgFill(vg);
+				x += w + mm2px(0.28f + ((sh >> 4) & 3) * 0.16f) * (1.f + total * 0.7f);
 			}
 		}
+
+		// Repeat and Break expose the actual clock grid as amber slice boundaries.
+		// At high audio-rate counts, cap the drawing density without changing DSP.
+		int shownSlices = std::min(slices, 16);
+		if (shownSlices > 1) {
+			for (int i = 1; i < shownSlices; i++) {
+				float gx = pad + (W - 2.f * pad) * i / shownSlices;
+				nvgBeginPath(vg);
+				nvgMoveTo(vg, gx, bodyY);
+				nvgLineTo(vg, gx, bodyBottom);
+				nvgStrokeColor(vg, nvgRGBA(0xff, 0xa8, 0x15,
+					(unsigned char)(0x28 + brk * 0x78)));
+				nvgStrokeWidth(vg, 0.75f);
+				nvgStroke(vg);
+			}
+		}
+
+		// Large tracer blocks move independently of the hashed data so motion is
+		// obvious at small Rack zoom levels and with every damage amount at zero.
+		float traceSpan = W - 2.f * pad - mm2px(2.4f);
+		NVGcolor traceColors[5] = {
+			nvgRGBA(0x73, 0xf4, 0xff, 0xf4), nvgRGBA(0x26, 0xd9, 0xff, 0xea),
+			nvgRGBA(0xff, 0xc2, 0x3e, 0xe8), nvgRGBA(0x73, 0xf4, 0xff, 0xf0),
+			nvgRGBA(0xff, 0x54, 0x44, 0xe6)
+		};
+		for (int i = 0; i < 5; i++) {
+			float travel = std::fmod(playPhase + i * 0.173f, 1.f);
+			float tx = pad + travel * traceSpan;
+			int tr = (i * 3 + subIndex) % rows;
+			float ty = bodyY + (tr + 0.5f) * rowH;
+			nvgBeginPath(vg);
+			nvgRoundedRect(vg, tx, ty - rowH * 0.32f, mm2px(2.4f),
+				std::max(1.8f, rowH * 0.64f), 1.f);
+			nvgFillColor(vg, traceColors[i]);
+			nvgFill(vg);
+		}
+
+		// A broken data packet repeatedly crosses the whole field. Its separated
+		// cells remain legible at normal Rack zoom and make direction unmistakable.
+		float packetTravel = playPhase;
+		float packetX = -mm2px(8.f) + packetTravel * (W + mm2px(16.f));
+		float packetY = bodyY + bodyH * (0.28f + 0.18f * std::sin(clockPhase * 2.f * M_PI));
+		for (int i = 0; i < 7; i++) {
+			float cellX = packetX + i * mm2px(1.7f);
+			nvgBeginPath(vg);
+			nvgRoundedRect(vg, cellX, packetY, mm2px(1.15f), mm2px(1.15f), 0.7f);
+			nvgFillColor(vg, i == 5 ? nvgRGBA(0xff, 0x54, 0x44, 0xf4)
+				: nvgRGBA(0x9b, 0xfb, 0xff, 0xf0));
+			nvgFill(vg);
+		}
+
+		// The cyan head is the exact division phase; the red head is the current
+		// manipulated read phase. Their resets therefore land on the audio grid.
+		float scanY = bodyY + clockPhase * bodyH;
+		nvgBeginPath(vg);
+		nvgRect(vg, pad, scanY - mm2px(1.f), W - 2.f * pad, mm2px(2.f));
+		nvgFillColor(vg, nvgRGBA(0x35, 0xd3, 0xe0, 0x58));
+		nvgFill(vg);
+		nvgBeginPath(vg);
+		nvgMoveTo(vg, pad, scanY);
+		nvgLineTo(vg, W - pad, scanY);
+		nvgStrokeColor(vg, traverse > 0.f ? nvgRGBA(0xff, 0xc2, 0x3e, 0xff) : nvgRGBA(0x73, 0xf4, 0xff, 0xf2));
+		nvgStrokeWidth(vg, 1.6f);
+		nvgStroke(vg);
+		float scanX = pad + playPhase * (W - 2.f * pad);
+		nvgBeginPath(vg);
+		nvgMoveTo(vg, scanX, bodyY);
+		nvgLineTo(vg, scanX, bodyBottom);
+		nvgStrokeColor(vg, nvgRGBA(0xff, 0x54, 0x44, 0xc8));
+		nvgStrokeWidth(vg, 1.25f);
+		nvgStroke(vg);
+
+		nvgRestore(vg);
 	}
 };
 
@@ -992,8 +1132,9 @@ struct BadSectorWidget : ModuleWidget {
 		addChild(createWidget<BsScrew>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
 		BsChecksumArt* art = new BsChecksumArt();
-		art->box.pos = Vec(0, 0);
-		art->box.size = box.size;
+		art->box.pos = mm2px(Vec(BsChecksumArt::X0, BsChecksumArt::Y0));
+		art->box.size = mm2px(Vec(BsChecksumArt::X1 - BsChecksumArt::X0,
+			BsChecksumArt::Y1 - BsChecksumArt::Y0));
 		art->module = module;
 		addChild(art);
 
