@@ -862,14 +862,15 @@ struct BsChecksumArt : TransparentWidget {
 		if (dt <= 0.f) dt = 1.f / 60.f;
 
 		float bend = 0.15f, brk = 0.1f, corrupt = 0.05f, blink = 0.f;
-		bool frozen = false;
 		int divIdx = -1, corruptSel = 0;
 		if (module) {
 			bend = module->uiBend; brk = module->uiBreak; corrupt = module->uiCorrupt;
-			blink = module->clkBlink; frozen = module->wasFreezeActive;
+			blink = module->clkBlink;
 			divIdx = module->uiDivIdx; corruptSel = module->corruptSel;
 		}
-		if (!frozen) phase += dt;
+		// Freeze holds audio memory, not the interface. Keep the checksum field
+		// visibly alive so a restored frozen patch never looks stalled or dead.
+		phase += dt;
 		int slowT = (int)(phase * 3.f);
 		float total = clampf(bend * 0.5f + brk * 0.35f + corrupt * 0.45f, 0.f, 1.f);
 

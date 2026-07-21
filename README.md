@@ -58,7 +58,8 @@ the saved Mix; a saved Freeze request is deferred until that capture is safe.)
 - **MICRO** — manual playback speed, ±3 octaves. Active in Micro mode (and optionally as
   a global varispeed under Macro via the context menu).
 - **MODE / CLK / FRZ** — Macro/Micro, internal/external clock, and Freeze (latching by
-  default, engaging on the next division so everything stays in sync).
+  default, engaging on the next division so everything stays in sync). Freeze holds the
+  audio memory while the reactive checksum artwork continues to animate.
 
 ## Modes
 
