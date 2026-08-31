@@ -19,6 +19,13 @@ Because Rack does not save audio-buffer contents in patches, Bad Sector passes l
 while a newly loaded buffer records its first complete TIME window, then crossfades into
 the saved Mix; a saved Freeze request is deferred until that capture is safe.)
 
+## Demo
+
+[![Entwined — Bad Sector ambient patch with drone footage over London](https://i.ytimg.com/vi/EV3uuw9fdKU/hqdefault.jpg)](https://www.youtube.com/watch?v=EV3uuw9fdKU)
+
+**[Entwined](https://www.youtube.com/watch?v=EV3uuw9fdKU)** — Bad Sector used in an
+ambient VCV Rack patch, accompanied by drone footage over London.
+
 ## Controls
 
 - **TIME** — the clock/acquisition period. Internal: 16 s – 80 Hz. External:
