@@ -1,7 +1,7 @@
 {
-  "slug": "BadSector",
-  "name": "Bad Sector",
-  "version": "2.0.1",
+  "slug": "halfagiraf-BadSector",
+  "name": "halfagiraf Modules",
+  "version": "2.0.2",
   "license": "GPL-3.0-or-later",
   "brand": "halfagiraf",
   "author": "Steven McSorley",
